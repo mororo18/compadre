@@ -1,0 +1,3 @@
+[submodule "external/outbit"]
+	path = external/outbit
+	url = https://github.com/mororo18/outbit.git
