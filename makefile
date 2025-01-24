@@ -20,8 +20,8 @@ test: $(COMP_OBJ)
 	make -C $(TEST_DIR)
 
 clean:
-	rm $(TARGET)
-	rm $(COMP_OBJ)
+	$(RM) $(TARGET)
+	$(RM) $(COMP_OBJ)
 	make -C $(TEST_DIR) clean
 	make -C $(EXTERNAL_DIR)/outbit M=$(shell pwd) clean-lib
 
