@@ -7,15 +7,6 @@
 
 namespace compadre {
 
-    const std::unordered_map<char, float> char_frequencies = {
-        {' ', 17.00}, {'E', 14.63}, {'A', 13.72}, {'O', 10.73}, {'S', 7.81},
-        {'R', 6.53},  {'I', 6.18},  {'N', 5.05},  {'D', 4.99},  {'M', 4.74},
-        {'U', 4.63},  {'T', 4.34},  {'C', 3.88},  {'L', 2.78},  {'P', 2.52},
-        {'V', 1.67},  {'G', 1.30},  {'H', 1.28},  {'Q', 1.20},  {'B', 1.04},
-        {'F', 1.02},  {'Z', 0.47},  {'J', 0.40},  {'X', 0.27},  {'K', 0.02},
-        {'W', 0.01},  {'Y', 0.01}
-    };
-
     std::string preprocess_portuguese_text(const std::string& text);
 
     class PreprocessedPortugueseText {
@@ -24,6 +15,8 @@ namespace compadre {
         public:
             PreprocessedPortugueseText(const std::string&);
             inline const std::string& get_text() { return m_text; }
+            static std::unordered_map<char, float> char_frequencies;
+            static const std::array<char, 27> char_list;
     };
 
     class CompressionAlgorithm {
@@ -31,6 +24,55 @@ namespace compadre {
             outbit::BitBuffer m_bitbuffer;
         public:
             virtual void compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) = 0;
+    };
+
+    template<typename T>
+    struct Symbol {
+        T m_symbol;
+        float m_propability;
+    };
+
+    class SymbolList {
+        public:
+            SymbolList() = default;
+            void sort();
+            void push_char_symbol(Symbol<char> symb);
+        private:
+            std::vector<Symbol<char>> m_list;
+    };
+
+    using u8 = outbit::u8;
+    using Bit = bool;
+
+    class SFTreeNode {
+        class EmptyNode {};
+        using NodeContent = std::variant<Bit, SymbolList, EmptyNode>;
+        public:
+            NodeContent m_content;
+            std::optional<std::size_t> m_left_index;
+            std::optional<std::size_t> m_right_index;
+            std::optional<std::size_t> m_index;
+            SFTreeNode(NodeContent content = EmptyNode{});
+
+            template<typename T>
+            [[nodiscard]]
+            bool content_of_type() const;
+
+            template<typename T>
+            bool content_of_type();
+
+            [[nodiscard]]
+            inline bool is_empty() const { return content_of_type<EmptyNode>(); }
+            inline bool is_empty() { return content_of_type<EmptyNode>(); }
+    };
+
+    class ShannonFanoTree {
+        private:
+            std::vector<SFTreeNode> m_tree;
+        public:
+            std::size_t push_node(const SFTreeNode& node);
+            void add_left_child_to(SFTreeNode& node, const SFTreeNode& child);
+            void add_right_child_to(SFTreeNode& node, const SFTreeNode& child);
     };
 
     class ShannonFano: public CompressionAlgorithm {
