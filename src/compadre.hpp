@@ -9,6 +9,10 @@
 
 namespace compadre {
 
+    using u8 = outbit::u8;
+    using Bit = bool;
+
+
     std::string preprocess_portuguese_text(const std::string& text);
 
     class PreprocessedPortugueseText {
@@ -31,33 +35,49 @@ namespace compadre {
     template<typename T>
     struct Symbol {
         T m_symbol;
-        float m_propability;
+        float m_probability;
+
+        bool operator==(const Symbol& other) const {
+            return m_symbol == other.m_symbol;
+        }
+    };
+
+    class CodeWord {
+        public:
+            std::bitset<32> m_bits;
+            std::size_t m_bit_count;
+
+            CodeWord() = default;
+            inline void push_bit(Bit bit) {
+                // Bounds checking
+                m_bits.test(m_bit_count);
+                m_bits[m_bit_count] = bit;
+                m_bit_count++;
+            }
+
+            inline std::size_t length() { return m_bit_count; }
     };
 
     class SymbolList {
-        using vec_type = std::vector<Symbol<char>>;
-        using iterator = vec_type::iterator;
-        using const_iterator = vec_type::const_iterator;
         public:
             SymbolList() = default;
             void sort();
             bool is_sorted();
             void push_char_symbol(Symbol<char> symb);
             
-            inline iterator begin() noexcept { return m_list.begin(); }
             [[nodiscard]]
-            inline const_iterator cbegin() const noexcept { return m_list.cbegin(); }
-            inline iterator end() noexcept { return m_list.end(); }
+            inline auto cbegin() const noexcept { return m_list.cbegin(); }
+            inline auto begin() noexcept { return m_list.begin(); }
+
             [[nodiscard]]
-            inline const_iterator cend() const noexcept { return m_list.cend(); }
+            inline auto cend() const noexcept { return m_list.cend(); }
+            inline auto end() noexcept { return m_list.end(); }
 
             inline std::size_t size() { return m_list.size(); }
             inline Symbol<char> front() { return *m_list.begin(); }
         private:
             std::vector<Symbol<char>> m_list;
     };
-
-    using u8 = outbit::u8;
 
     class SFTreeNode {
         public:
@@ -66,43 +86,44 @@ namespace compadre {
             using NodeContent = std::variant<Symbol<char>, SymbolList, BranchNode, EmptyNode>;
 
             NodeContent m_content;
+            std::optional<std::size_t> m_index;
             std::optional<std::size_t> m_left_index;
             std::optional<std::size_t> m_right_index;
-            std::optional<std::size_t> m_index;
+            std::optional<std::size_t> m_parent_index;
             SFTreeNode(NodeContent content = EmptyNode{});
 
             static
             std::pair<SymbolList, SymbolList> slip_symbol_list(SymbolList& symb_list);
 
-            template<typename T>
-            bool has_content_of_type() {
-                return std::holds_alternative<T>(m_content);
+            template<typename ContentVariant>
+            inline bool has_content_of_type() {
+                return std::holds_alternative<ContentVariant>(m_content);
             }
 
-            template<typename T>
+            template<typename ContentVariant>
             [[nodiscard]]
-            bool has_content_of_type() const {
-                return std::holds_alternative<T>(m_content);
+            inline bool has_content_of_type() const {
+                return std::holds_alternative<ContentVariant>(m_content);
             }
 
             [[nodiscard]]
             inline bool is_empty() const { return has_content_of_type<EmptyNode>(); }
             inline bool is_empty() { return has_content_of_type<EmptyNode>(); }
 
-            template<typename T>
+            template<typename ContentVariant>
             [[nodiscard]]
-            inline std::optional<T> get_content() const {
-                if (has_content_of_type<T>()) {
-                    return std::get<T>(m_content);
+            inline std::optional<ContentVariant> get_content() const {
+                if (has_content_of_type<ContentVariant>()) {
+                    return std::get<ContentVariant>(m_content);
                 }
 
                 return std::nullopt;
             }
 
-            template<typename T>
-            inline std::optional<T> get_content() {
-                if (has_content_of_type<T>()) {
-                    return std::get<T>(m_content);
+            template<typename ContentVariant>
+            inline std::optional<ContentVariant> get_content() {
+                if (has_content_of_type<ContentVariant>()) {
+                    return std::get<ContentVariant>(m_content);
                 }
 
                 return std::nullopt;
@@ -112,13 +133,31 @@ namespace compadre {
                 m_content = std::move(new_content);
             }
 
-            inline std::size_t index() { return m_index.value(); }
+            [[nodiscard]]
+            inline std::optional<std::size_t> index() const { return m_index; }
+            inline std::optional<std::size_t> index() { return m_index; }
     };
+}
+
+// NOTE: This specialization needs to be declared after the
+// ShannonFanoTree class.
+template <>
+struct std::hash<compadre::Symbol<char>> {
+    size_t operator()(const compadre::Symbol<char> &s) const {
+        return std::hash<char>()(s.m_symbol);
+    }
+};
+
+namespace compadre {
 
     class ShannonFanoTree {
-        //private:
-        public:
+        private:
             std::vector<SFTreeNode> m_tree;
+            SymbolList m_symb_list;
+            std::unordered_map<Symbol<char>, CodeWord> m_code;
+        public:
+            static Bit left_branch_bit;
+            static Bit right_branch_bit;
             ShannonFanoTree(SymbolList& symb_list);
             std::size_t push_node(const SFTreeNode& node);
             std::size_t add_left_child_to(std::size_t parent_index, const SFTreeNode& child);
@@ -130,11 +169,18 @@ namespace compadre {
                 return m_tree.at(index);
             }
 
-            void print();
+            [[nodiscard]]
+            inline std::size_t nodes_count() const { return m_tree.size(); }
+            inline std::size_t nodes_count() { return m_tree.size(); }
 
+            [[nodiscard]]
+            inline auto begin() const noexcept { return m_tree.cbegin(); }
+            inline auto begin() noexcept { return m_tree.begin(); }
+
+            [[nodiscard]]
+            inline auto end() const noexcept { return m_tree.cend(); }
+            inline auto end() noexcept { return m_tree.end(); }
     };
-
-
 
 
     class ShannonFano: public CompressionAlgorithm {
@@ -143,7 +189,6 @@ namespace compadre {
         public:
             void compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) override;
     };
-
 }
 
 template <>
@@ -152,20 +197,21 @@ struct std::formatter<compadre::ShannonFanoTree> : std::formatter<std::string_vi
         std::string temp;
 
         std::format_to(std::back_inserter(temp),
-                "Tree (size={}): ", tree.m_tree.size());
+                "Tree (size={}): ", tree.nodes_count());
 
-        for (auto& node: tree.m_tree) {
+        for (auto& node: tree) {
             if (node.has_content_of_type<compadre::Symbol<char>>()) {
                 auto node_symbol = node.get_content<compadre::Symbol<char>>().value().m_symbol;
                 std::format_to(std::back_inserter(temp),
-                    " (node={}, symb='{}')", node.m_index.value(), node_symbol);
+                        " (node={}, symb='{}')", node.index().value(), node_symbol);
             }
 
             if (node.has_content_of_type<compadre::SFTreeNode::BranchNode>()) {
                 std::format_to(std::back_inserter(temp),
-                    " (node={}, 'branch')", node.m_index.value());
+                        " (node={}, 'branch')", node.index().value());
             }
         }
         return std::formatter<string_view>::format(temp, ctx);
     }
 };
+
