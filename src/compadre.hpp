@@ -162,7 +162,7 @@ namespace compadre {
             std::size_t push_node(const SFTreeNode& node);
             std::size_t add_left_child_to(std::size_t parent_index, const SFTreeNode& child);
             std::size_t add_right_child_to(std::size_t parent_index, const SFTreeNode& child);
-            void generate_codes();
+            auto generate_codes() -> std::unordered_map<Symbol<char>, CodeWord>;
             inline SFTreeNode& get_node_ref_from_index(std::size_t index) {
                 assert(index < m_tree.size());
 

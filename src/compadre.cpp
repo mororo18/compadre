@@ -199,12 +199,13 @@ namespace compadre {
         return child_index;
     }
 
-    void ShannonFanoTree::generate_codes() {
+    std::unordered_map<Symbol<char>, CodeWord> ShannonFanoTree::generate_codes() {
         assert(m_tree.size() == 1);
 
         auto root = m_tree.front();
         assert(root.index().value() == 0);
         auto stack = std::vector<SFTreeNode>{root};
+        auto leaf_nodes_indexes = std::vector<std::size_t>();
 
         while (not stack.empty()) {
             auto node = stack.back();
@@ -258,62 +259,69 @@ namespace compadre {
                 stack.push_back(right_child);
             }
 
+            // Store the indexes of the nodes that have a Symbol as content
+            if (left_child.has_content_of_type<Symbol<char>>()) {
+                leaf_nodes_indexes.push_back(left_index);
+            }
+            if (right_child.has_content_of_type<Symbol<char>>()) {
+                leaf_nodes_indexes.push_back(right_index);
+            }
+
             // Set the the parent node as a BranchNode.
             get_node_ref_from_index(parent_index)
                 .set_content(SFTreeNode::BranchNode{});
         }
 
         // Get the code-words
-        root = m_tree.front();
-        assert(root.index().value() == 0);
-        stack = std::vector<SFTreeNode>{root};
-
-        for (auto node: m_tree) {
-            if (node.has_content_of_type<Symbol<char>>()) {
-                auto node_code_word = CodeWord();
-                auto current_node = node;
-                while (true) {
-                    auto parent_index_opt = current_node.m_parent_index;
-                    // We break out of the loop in case we found the root node
-                    // (the node doesnt have a parent.
-                    if (not parent_index_opt.has_value()) {
-                        break;
-                    }
-
-                    auto parent_index = parent_index_opt.value();
-                    auto parent = get_node_ref_from_index(parent_index);
-
-                    // Check if the current node its the right os the left child.
-                    if (parent.m_left_index.value() == current_node.index().value()) {
-                        node_code_word.push_bit(ShannonFanoTree::left_branch_bit);
-                    }
-                    if (parent.m_right_index.value() == current_node.index().value()) {
-                        node_code_word.push_bit(ShannonFanoTree::right_branch_bit);
-                    }
-
-                    current_node = parent;
+        for (auto node_index: leaf_nodes_indexes) {
+            auto node = get_node_ref_from_index(node_index);
+            auto node_code_word = CodeWord();
+            auto current_node = node;
+            while (true) {
+                auto parent_index_opt = current_node.m_parent_index;
+                // We break out of the loop in case we found the root node
+                // (the node doesnt have a parent.
+                if (not parent_index_opt.has_value()) {
+                    break;
                 }
 
-                auto node_symb = node.get_content<Symbol<char>>().value();
-                m_code[node_symb] = node_code_word;
+                auto parent_index = parent_index_opt.value();
+                auto parent = get_node_ref_from_index(parent_index);
+
+                // Check if the current node its the right os the left child.
+                if (parent.m_left_index.value() == current_node.index().value()) { // NOLINT(bugprone-unchecked-optional-access)
+                    node_code_word.push_bit(ShannonFanoTree::left_branch_bit);
+                }
+                if (parent.m_right_index.value() == current_node.index().value()) { // NOLINT(bugprone-unchecked-optional-access)
+                    node_code_word.push_bit(ShannonFanoTree::right_branch_bit);
+                }
+
+                current_node = parent;
             }
+
+            auto node_symb = node.get_content<Symbol<char>>().value(); // NOLINT(bugprone-unchecked-optional-access)
+            m_code[node_symb] = node_code_word;
         }
 
         // Print code-words
         for (auto [symb, code_word]: m_code) {
             std::print("Symbol({}): ", symb.m_symbol);
 
-            for (long long bit_index = code_word.m_bits.size()-1;
+            auto last_index = (long long)(code_word.m_bits.size()) - 1;
+            for (long long bit_index = last_index;
                     bit_index >= 0;
                     bit_index--)
             {
-                if (bit_index < code_word.length()) {
+                assert(bit_index >= 0);
+                if (std::size_t(bit_index) < code_word.length()) {
                     std::print("{}", int(code_word.m_bits.test(bit_index)));
                 }
             }
 
             std::println(" (length={}),", code_word.length());
         }
+
+        return m_code;
     }
 
     void ShannonFano::compress_preprocessed_portuguese_text(PreprocessedPortugueseText& text) {
@@ -334,6 +342,6 @@ namespace compadre {
 
         tree.generate_codes();
 
-        //std::println("{}", tree);
+        std::println("{}", tree);
     }
 }
