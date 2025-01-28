@@ -29,7 +29,7 @@ namespace compadre {
         protected:
             outbit::BitBuffer m_bitbuffer;
         public:
-            virtual void compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) = 0;
+            virtual auto compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) -> std::vector<u8> = 0;
     };
 
     template<typename T>
@@ -187,7 +187,7 @@ namespace compadre {
         private:
             int a;
         public:
-            void compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) override;
+            auto compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) -> std::vector<u8> override;
     };
 }
 

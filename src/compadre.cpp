@@ -203,7 +203,7 @@ namespace compadre {
         assert(m_tree.size() == 1);
 
         auto root = m_tree.front();
-        assert(root.index().value() == 0);
+        assert(root.index().value() == 0); // NOLINT(bugprone-unchecked-optional-access)
         auto stack = std::vector<SFTreeNode>{root};
         auto leaf_nodes_indexes = std::vector<std::size_t>();
 
@@ -324,7 +324,7 @@ namespace compadre {
         return m_code;
     }
 
-    void ShannonFano::compress_preprocessed_portuguese_text(PreprocessedPortugueseText& text) {
+    auto ShannonFano::compress_preprocessed_portuguese_text(PreprocessedPortugueseText& text) -> std::vector<u8> {
         std::println("Text: {}", text.get_text());
         auto symb_list = SymbolList();
 
@@ -339,9 +339,23 @@ namespace compadre {
         }
 
         auto tree = ShannonFanoTree(symb_list);
+        auto code = tree.generate_codes();
 
-        tree.generate_codes();
+        // Buffer of compressed data
+        auto outbuff = outbit::BitBuffer();
+        for (char ch: text.get_text()) {
+            auto symb = Symbol {
+                .m_symbol = ch,
+                .m_probability = 0.0f, // Doenst matter
+            };
 
-        std::println("{}", tree);
+            auto code_word = code.at(symb);
+            auto bits_as_ullong = code_word.m_bits.to_ullong();
+
+            outbuff.write_bits(bits_as_ullong, code_word.length());
+        }
+        //std::println("{}", tree);
+
+        return outbuff.buffer();
     }
 }
