@@ -14,17 +14,32 @@ UTEST(preprocess, portuguese_text) {
     }
 }
 
-/*
-UTEST(preprocess, char_frequencies) {
-    float total_prob = 0.0f;
-    for (auto& [key, value]: compadre::PreprocessedPortugueseText::char_frequencies) {
-        total_prob += value;
-    }
+UTEST(Shannon_Fano, preproc_little_roundtrip) {
+    auto preproc = compadre::PreprocessedPortugueseText(
+        "Fui descalçar as botas, que estavam apertadas. Uma vez aliviado, respirei à larga, "
+        "e deitei-me a fio comprido, enquanto os pés, e todo eu atrás deles, entrávamos numa "
+        "relativa bem-aventurança. Então considerei que as botas apertadas são uma das maiores "
+        "venturas da Terra, porque, fazendo doer os pés, dão azo ao prazer de as descalçar. "
+        "Mortifica os pés, desgraçado, desmortifica-os depois, e aí tens a felicidade barata, "
+        "ao sabor dos sapateiros e de Epicuro. [...] Inferi eu que a vida é o mais engenhoso dos "
+        "fenômenos, porque só aguça a fome, com o fim de deparar a ocasião de comer, e não inventou "
+        "os calos, senão porque eles aperfeiçoam a felicidade terrestre. Em verdade vos digo que toda "
+        "a sabedoria humana não vale um par de botas curtas."
+    );
 
-    float expected = 100.0f;
-    ASSERT_NEAR(total_prob, expected, 0.01f);
+    auto compressor = compadre::ShannonFano();
+    auto compressed_data = compressor.compress_preprocessed_portuguese_text(preproc);
+
+    // TODO: check if its necessary reconstruct the compressor object.
+    compressor = compadre::ShannonFano();
+    auto decompressed_text = compressor.decompress_preprocessed_portuguese_text(compressed_data);
+
+    ASSERT_EQ(preproc.as_string().size(), decompressed_text.as_string().size());
+
+    for (std::size_t i = 0; i < preproc.as_string().size(); i++) {
+        ASSERT_EQ(preproc.as_string()[i], decompressed_text.as_string()[i]);
+    }
 }
-*/
 
 UTEST(SFTreeNode, slip_symbol_list) {
     auto symb_list = compadre::SymbolList();

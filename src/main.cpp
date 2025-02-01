@@ -18,6 +18,8 @@ auto collect_args(int argc, const char * argv[]) -> std::vector<std::string_view
 enum class UserOption: uint8_t {
     InputFile,
     OutputFile,
+    Compression,
+    Decompression,
 };
 
 auto match_option(std::string_view user_input) -> std::optional<UserOption> {
@@ -25,6 +27,10 @@ auto match_option(std::string_view user_input) -> std::optional<UserOption> {
         return UserOption::InputFile;
     } else if (user_input == "-o") {
         return UserOption::OutputFile;
+    } else if (user_input == "-c") {
+        return UserOption::Compression;
+    } else if (user_input == "-d") {
+        return UserOption::Decompression;
     }
 
     return std::nullopt;
@@ -39,6 +45,8 @@ void invalid_options_usage() {
 struct UserInput {
     std::optional<std::string> input_filename;
     std::string output_filename = "out.comp";
+    bool compression_mode;
+    bool decompression_mode;
 
     UserInput() = default;
 };
@@ -75,10 +83,25 @@ auto treat_args(const std::vector<std::string_view>& args) -> UserInput {
                         }
                     }
                     break;
+                case UserOption::Compression:
+                    {
+                        user_input.compression_mode = true;
+                    }
+                    break;
+                case UserOption::Decompression:
+                    {
+                        user_input.decompression_mode = true;
+                    }
+                    break;
                 default:
                     break;
             }
         }
+    }
+
+    if (user_input.compression_mode == user_input.decompression_mode) {
+        std::println("Select one mode: compression (-c) or decompression (-d)!");
+        invalid_options_usage();
     }
 
     if (not user_input.input_filename.has_value()) {
@@ -97,21 +120,40 @@ int main(int argc, const char * argv[]) {
         std::println("{}", arg);
     }
 
-    auto t = std::ifstream(user_input.input_filename.value());
-    auto input_text = std::string(
-        std::istreambuf_iterator<char>(t),
-        std::istreambuf_iterator<char>()
-    );
 
-    auto preproc = compadre::PreprocessedPortugueseText(input_text);
+    if (user_input.compression_mode) {
+        auto t = std::ifstream(user_input.input_filename.value());
+        auto input_text = std::string(
+                std::istreambuf_iterator<char>(t),
+                std::istreambuf_iterator<char>()
+                );
+        auto preproc = compadre::PreprocessedPortugueseText(input_text);
+        auto compressor = compadre::ShannonFano();
+        auto compressed_data = compressor.compress_preprocessed_portuguese_text(preproc);
 
-    auto compressor = compadre::ShannonFano();
-    auto compressed_data = compressor.compress_preprocessed_portuguese_text(preproc);
+        // Write output
+        auto outbuff = outbit::BitBuffer();
+        outbuff.read_from_vector(compressed_data);
+        outbuff.write_as_file(user_input.output_filename);
 
-    // Write output
-    auto outbuff = outbit::BitBuffer();
-    outbuff.read_from_vector(compressed_data);
-    outbuff.write_as_file(user_input.output_filename);
+    } else if (user_input.decompression_mode) {
+        auto inbuff = outbit::BitBuffer();
+        inbuff.read_from_file(user_input.input_filename.value());
+        auto data = inbuff.buffer();
+
+        auto compressor = compadre::ShannonFano();
+        auto decompressed_text = compressor.decompress_preprocessed_portuguese_text(data);
+
+        auto decompressed_data = std::vector<outbit::u8>();
+        std::copy(decompressed_text.as_string().begin(),
+                decompressed_text.as_string().end(), std::back_inserter(decompressed_data));
+
+        // Write output
+        auto outbuff = outbit::BitBuffer();
+        outbuff.read_from_vector(decompressed_data);
+        outbuff.write_as_file(user_input.output_filename);
+    }
+
 
     return 0;
 }

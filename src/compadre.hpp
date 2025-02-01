@@ -20,7 +20,7 @@ namespace compadre {
             std::string m_text;
         public:
             PreprocessedPortugueseText(const std::string&);
-            inline const std::string& get_text() { return m_text; }
+            inline const std::string& as_string() { return m_text; }
             static std::unordered_map<char, float> char_frequencies;
             static const std::array<char, 27> char_list;
     };
@@ -30,6 +30,7 @@ namespace compadre {
             outbit::BitBuffer m_bitbuffer;
         public:
             virtual auto compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) -> std::vector<u8> = 0;
+            virtual auto decompress_preprocessed_portuguese_text(std::vector<u8>&) -> PreprocessedPortugueseText = 0;
     };
 
     template<typename T>
@@ -48,11 +49,29 @@ namespace compadre {
             std::size_t m_bit_count;
 
             CodeWord() = default;
-            inline void push_bit(Bit bit) {
+            inline void push_right_bit(Bit bit) {
+                // Bounds checking
+                m_bits.test(m_bit_count);
+                m_bits <<= 1;
+                m_bits[0] = bit;
+                m_bit_count++;
+            }
+
+            inline void push_left_bit(Bit bit) {
                 // Bounds checking
                 m_bits.test(m_bit_count);
                 m_bits[m_bit_count] = bit;
                 m_bit_count++;
+            }
+
+            void reverse_valid_bits() {
+                for (std::size_t i = 0; i < m_bit_count / 2; ++i) {
+                    bool bit1 = m_bits[i];
+                    bool bit2 = m_bits[m_bit_count - 1 - i];
+
+                    m_bits[i] = bit2;
+                    m_bits[m_bit_count - 1 - i] = bit1;
+                }
             }
 
             inline std::size_t length() { return m_bit_count; }
@@ -188,6 +207,7 @@ namespace compadre {
             int a;
         public:
             auto compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) -> std::vector<u8> override;
+            auto decompress_preprocessed_portuguese_text(std::vector<u8>&) -> PreprocessedPortugueseText override;
     };
 }
 

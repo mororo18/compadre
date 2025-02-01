@@ -290,10 +290,10 @@ namespace compadre {
 
                 // Check if the current node its the right os the left child.
                 if (parent.m_left_index.value() == current_node.index().value()) { // NOLINT(bugprone-unchecked-optional-access)
-                    node_code_word.push_bit(ShannonFanoTree::left_branch_bit);
+                    node_code_word.push_left_bit(ShannonFanoTree::left_branch_bit);
                 }
                 if (parent.m_right_index.value() == current_node.index().value()) { // NOLINT(bugprone-unchecked-optional-access)
-                    node_code_word.push_bit(ShannonFanoTree::right_branch_bit);
+                    node_code_word.push_left_bit(ShannonFanoTree::right_branch_bit);
                 }
 
                 current_node = parent;
@@ -304,6 +304,7 @@ namespace compadre {
         }
 
         // Print code-words
+        /*
         for (auto [symb, code_word]: m_code) {
             std::print("Symbol({}): ", symb.m_symbol);
 
@@ -320,12 +321,16 @@ namespace compadre {
 
             std::println(" (length={}),", code_word.length());
         }
+        */
 
         return m_code;
     }
 
     auto ShannonFano::compress_preprocessed_portuguese_text(PreprocessedPortugueseText& text) -> std::vector<u8> {
-        std::println("Text: {}", text.get_text());
+        assert(text.as_string().size() < std::size_t(std::numeric_limits<uint32_t>::max)
+                && "Input is too big.");
+
+        //std::println("Text: {}", text.as_string());
         auto symb_list = SymbolList();
 
         for (auto ch: PreprocessedPortugueseText::char_list) {
@@ -340,22 +345,82 @@ namespace compadre {
 
         auto tree = ShannonFanoTree(symb_list);
         auto code = tree.generate_codes();
+        auto symb_count = uint32_t(text.as_string().size());
 
         // Buffer of compressed data
         auto outbuff = outbit::BitBuffer();
-        for (char ch: text.get_text()) {
+        // Write symb count in the first 4 bytes.
+        outbuff.write(symb_count);
+        for (char ch: text.as_string()) {
             auto symb = Symbol {
                 .m_symbol = ch,
                 .m_probability = 0.0f, // Doenst matter
             };
 
             auto code_word = code.at(symb);
+            // NOTE: We do this to make the decompression more efficient.
+            code_word.reverse_valid_bits();
             auto bits_as_ullong = code_word.m_bits.to_ullong();
 
             outbuff.write_bits(bits_as_ullong, code_word.length());
         }
-        //std::println("{}", tree);
 
         return outbuff.buffer();
+    }
+
+    auto ShannonFano::decompress_preprocessed_portuguese_text(std::vector<u8>& data) -> PreprocessedPortugueseText {
+
+        auto symb_list = SymbolList();
+        for (auto ch: PreprocessedPortugueseText::char_list) {
+            auto ch_probability = PreprocessedPortugueseText::char_frequencies.at(ch);
+            auto symb = Symbol {
+                .m_symbol = ch,
+                .m_probability = ch_probability,
+            };
+
+            symb_list.push_char_symbol(symb);
+        }
+
+        auto tree = ShannonFanoTree(symb_list);
+        auto code = tree.generate_codes();
+        auto inbuff = outbit::BitBuffer();
+        inbuff.read_from_vector(data);
+        // Write symb count in the first 4 bytes.
+        auto symb_count = inbuff.read_as<uint32_t>();
+
+        auto decompressed_text = std::string();
+
+        // Get the root node
+        for (uint32_t symb_index = 0; symb_index < symb_count; symb_index++) {
+            auto current_node = tree.get_node_ref_from_index(0);
+            auto code_word = CodeWord();
+            auto symbol = std::optional<Symbol<char>>();
+
+            while (true) {
+                auto current_bit = inbuff.read_bits_as<bool>(1);
+
+                if (current_bit) {
+                    assert(ShannonFanoTree::right_branch_bit);
+                    auto right_index = current_node.m_right_index.value();
+                    current_node = tree.get_node_ref_from_index(right_index);
+                } else {
+                    assert(!ShannonFanoTree::left_branch_bit);
+                    auto left_index = current_node.m_left_index.value();
+                    current_node = tree.get_node_ref_from_index(left_index);
+                }
+
+                code_word.push_right_bit(current_bit);
+
+                if (current_node.has_content_of_type<Symbol<char>>()) {
+                    symbol = current_node.get_content<Symbol<char>>();
+                    break;
+                }
+            }
+
+            assert(code.at(symbol.value()).m_bits == code_word.m_bits);
+            decompressed_text += symbol.value().m_symbol;
+        }
+
+        return {decompressed_text};
     }
 }
