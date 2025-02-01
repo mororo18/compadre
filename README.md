@@ -17,3 +17,9 @@ git submodule update --init --recursive
 ```
 make
 ```
+
+## run tests
+
+```
+make test
+```
