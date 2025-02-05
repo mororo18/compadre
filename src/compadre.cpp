@@ -347,6 +347,8 @@ namespace compadre {
         auto code = tree.generate_codes();
         auto symb_count = uint32_t(text.as_string().size());
 
+        std::size_t total_bits{};
+
         // Buffer of compressed data
         auto outbuff = outbit::BitBuffer();
         // Write symb count in the first 4 bytes.
@@ -358,12 +360,17 @@ namespace compadre {
             };
 
             auto code_word = code.at(symb);
+            total_bits += code_word.length();
             // NOTE: We do this to make the decompression more efficient.
             code_word.reverse_valid_bits();
             auto bits_as_ullong = code_word.m_bits.to_ullong();
 
             outbuff.write_bits(bits_as_ullong, code_word.length());
         }
+
+        auto bits_per_symb = float(total_bits) / float(text.as_string().size());
+        std::println("bits per symb {}", bits_per_symb);
+        std::println("razao de comp {}", 5.0f / bits_per_symb);
 
         return outbuff.buffer();
     }

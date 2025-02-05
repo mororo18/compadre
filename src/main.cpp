@@ -36,9 +36,18 @@ auto match_option(std::string_view user_input) -> std::optional<UserOption> {
     return std::nullopt;
 }
 
+void print_usage() {
+    std::println("Usage: compadre [options]\n"
+                 "Available options:\n"
+                 "  -i <file-name>    Specify the input file\n"
+                 "  -o <file-name>    Specify the output file\n"
+                 "  -c                Enable file compression\n"
+                 "  -d                Enable file decompression");
+}
+
 void invalid_options_usage() {
     std::println("Invalid usage!");
-    // TODO; print the correct usage.
+    print_usage();
     std::exit(0);
 }
 
