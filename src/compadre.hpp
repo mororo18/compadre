@@ -15,22 +15,33 @@ namespace compadre {
 
     std::string preprocess_portuguese_text(const std::string& text);
 
+    template<typename Model>
+    concept StaticModel = requires(char symb) {
+        { Model::probability_of(symb) } -> std::same_as<float>;
+    };
+
+    template<typename Model>
+    concept AdaptativeModel = requires(char symb) {
+        { Model::new_probability_of(symb) } -> std::same_as<float>;
+    };
+
     class PreprocessedPortugueseText {
         private:
             std::string m_text;
         public:
             PreprocessedPortugueseText(const std::string&);
             inline const std::string& as_string() { return m_text; }
-            static std::unordered_map<char, float> char_frequencies;
             static const std::array<char, 27> char_list;
-    };
 
-    class CompressionAlgorithm {
-        protected:
-            outbit::BitBuffer m_bitbuffer;
-        public:
-            virtual auto compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) -> std::vector<u8> = 0;
-            virtual auto decompress_preprocessed_portuguese_text(std::vector<u8>&) -> PreprocessedPortugueseText = 0;
+            class StaticModel {
+                public:
+                    static std::unordered_map<char, float> char_frequencies;
+
+                    inline
+                    static auto probability_of(char symb) -> float {
+                        return char_list[symb];
+                    }
+            };
     };
 
     template<typename T>
@@ -98,42 +109,82 @@ namespace compadre {
             std::vector<Symbol<char>> m_list;
     };
 
-    class SFTreeNode {
-        public:
-            class EmptyNode {};
-            class BranchNode {};
-            using NodeContent = std::variant<Symbol<char>, SymbolList, BranchNode, EmptyNode>;
 
-            NodeContent m_content;
+    template<typename Content>
+    class CodeTreeNode {
+
+        public:
+            using content_type = Content;
+
+            std::optional<Content> m_content;
+            std::optional<Symbol<char>> m_symbol;
             std::optional<std::size_t> m_index;
             std::optional<std::size_t> m_left_index;
             std::optional<std::size_t> m_right_index;
             std::optional<std::size_t> m_parent_index;
-            SFTreeNode(NodeContent content = EmptyNode{});
+
+            [[nodiscard]]
+            inline bool is_empty() const { return !m_content.has_value(); }
+            inline bool is_empty() { return !m_content.has_value(); }
+            inline bool has_symbol() { return m_symbol.has_value(); }
+            inline bool is_leaf() {
+                return !m_left_index.has_value()
+                    && !m_right_index.has_value();
+            }
+
+            CodeTreeNode(Content content) : m_content(std::move(content))
+            {
+            }
+
+            inline void set_content(Content new_content) {
+                m_content = std::move(new_content);
+            }
+
+            inline void clear_content() {
+                m_content = std::nullopt;
+            }
+
+            [[nodiscard]]
+            inline std::optional<std::size_t> index() const { return m_index; }
+            inline std::optional<std::size_t> index() { return m_index; }
+
+            [[nodiscard]]
+            inline std::optional<Content> get_content() const { return m_content; }
+            inline std::optional<Content> get_content() { return m_content; }
+    };
+
+    class BranchNode {};
+    using SFTreeNodeContent = std::variant<Symbol<char>, SymbolList, BranchNode>;
+    class SFTreeNode : public CodeTreeNode<SFTreeNodeContent> {
+        public:
+
+            SFTreeNode(SFTreeNodeContent content) : CodeTreeNode(content)
+            {
+            }
 
             static
             std::pair<SymbolList, SymbolList> slip_symbol_list(SymbolList& symb_list);
 
             template<typename ContentVariant>
             inline bool has_content_of_type() {
-                return std::holds_alternative<ContentVariant>(m_content);
+                return !is_empty() && std::holds_alternative<ContentVariant>(m_content.value());
             }
 
             template<typename ContentVariant>
             [[nodiscard]]
             inline bool has_content_of_type() const {
-                return std::holds_alternative<ContentVariant>(m_content);
+                return !is_empty() && std::holds_alternative<ContentVariant>(m_content.value());
             }
-
-            [[nodiscard]]
-            inline bool is_empty() const { return has_content_of_type<EmptyNode>(); }
-            inline bool is_empty() { return has_content_of_type<EmptyNode>(); }
 
             template<typename ContentVariant>
             [[nodiscard]]
             inline std::optional<ContentVariant> get_content() const {
+                if (is_empty()) {
+                    return std::nullopt;
+                }
+
                 if (has_content_of_type<ContentVariant>()) {
-                    return std::get<ContentVariant>(m_content);
+                    return std::get<ContentVariant>(m_content.value());
                 }
 
                 return std::nullopt;
@@ -141,24 +192,21 @@ namespace compadre {
 
             template<typename ContentVariant>
             inline std::optional<ContentVariant> get_content() {
+                if (is_empty()) {
+                    return std::nullopt;
+                }
+
                 if (has_content_of_type<ContentVariant>()) {
-                    return std::get<ContentVariant>(m_content);
+                    return std::get<ContentVariant>(m_content.value());
                 }
 
                 return std::nullopt;
             }
 
-            inline void set_content(NodeContent new_content) {
-                m_content = std::move(new_content);
-            }
-
-            [[nodiscard]]
-            inline std::optional<std::size_t> index() const { return m_index; }
-            inline std::optional<std::size_t> index() { return m_index; }
     };
 }
 
-// NOTE: This specialization needs to be declared after the
+// NOTE: This specialization needs to be declared before the
 // ShannonFanoTree class.
 template <>
 struct std::hash<compadre::Symbol<char>> {
@@ -168,25 +216,35 @@ struct std::hash<compadre::Symbol<char>> {
 };
 
 namespace compadre {
+    template <typename DerivedTreeNode>
+    concept ValidTreeNode =
+        std::is_base_of_v<CodeTreeNode<typename DerivedTreeNode::content_type>, DerivedTreeNode>;
 
-    class ShannonFanoTree {
+
+    template <ValidTreeNode CodeTreeNode>
+    class CodeTree {
         private:
-            std::vector<SFTreeNode> m_tree;
+            std::vector<CodeTreeNode> m_tree;
             SymbolList m_symb_list;
             std::unordered_map<Symbol<char>, CodeWord> m_code;
         public:
-            static Bit left_branch_bit;
-            static Bit right_branch_bit;
-            ShannonFanoTree(SymbolList& symb_list);
-            std::size_t push_node(const SFTreeNode& node);
-            std::size_t add_left_child_to(std::size_t parent_index, const SFTreeNode& child);
-            std::size_t add_right_child_to(std::size_t parent_index, const SFTreeNode& child);
-            auto generate_codes() -> std::unordered_map<Symbol<char>, CodeWord>;
-            inline SFTreeNode& get_node_ref_from_index(std::size_t index) {
+            static const Bit left_branch_bit = false;
+            static const Bit right_branch_bit = true;
+            CodeTree(SymbolList& symb_list);
+            std::size_t push_node(const CodeTreeNode& node);
+            std::size_t add_left_child_to(std::size_t parent_index, const CodeTreeNode& child);
+            std::size_t add_right_child_to(std::size_t parent_index, const CodeTreeNode& child);
+            auto get_code_map() -> std::unordered_map<Symbol<char>, CodeWord>;
+            inline CodeTreeNode& get_node_ref_from_index(std::size_t index) {
                 assert(index < m_tree.size());
 
                 return m_tree.at(index);
             }
+
+            auto get_index_of_leaves() -> std::vector<std::size_t>;
+
+            //inline auto symbol_from_codeword(CodeWord codeword) {
+            //}
 
             [[nodiscard]]
             inline std::size_t nodes_count() const { return m_tree.size(); }
@@ -199,21 +257,280 @@ namespace compadre {
             [[nodiscard]]
             inline auto end() const noexcept { return m_tree.cend(); }
             inline auto end() noexcept { return m_tree.end(); }
+
     };
 
+    template<ValidTreeNode CodeTreeNode>
+    CodeTree<CodeTreeNode>::CodeTree(SymbolList& symb_list)
+        : m_symb_list(symb_list)
+    {
+    }
 
-    class ShannonFano: public CompressionAlgorithm {
-        private:
-            int a;
+
+    template <ValidTreeNode CodeTreeNode>
+    std::size_t CodeTree<CodeTreeNode>::push_node(const CodeTreeNode& node) {
+        assert(not node.is_empty());
+
+        for (auto [node_index, tree_node]: std::views::enumerate(m_tree)) {
+            assert(not tree_node.is_empty());
+            if (tree_node.is_empty()) {
+                tree_node = node;
+                tree_node.m_index = node_index;
+                return node_index;
+            }
+        }
+
+        m_tree.push_back(node);
+        m_tree.back().m_index = m_tree.size() - 1;
+        return m_tree.size() - 1;
+    }
+
+    template <ValidTreeNode CodeTreeNode>
+    std::size_t CodeTree<CodeTreeNode>::add_right_child_to(std::size_t parent_index, const CodeTreeNode& child) {
+        auto child_index = push_node(child); 
+
+        auto& child_ref = get_node_ref_from_index(child_index);
+        child_ref.m_parent_index = parent_index;
+
+        auto& parent = get_node_ref_from_index(parent_index);
+        parent.m_right_index = child_index;
+
+        return child_index;
+    }
+
+    template <ValidTreeNode CodeTreeNode>
+    std::size_t CodeTree<CodeTreeNode>::add_left_child_to(std::size_t parent_index, const CodeTreeNode& child) {
+        auto child_index = push_node(child); 
+
+        auto& child_ref = get_node_ref_from_index(child_index);
+        child_ref.m_parent_index = parent_index;
+
+        auto& parent = get_node_ref_from_index(parent_index);
+        parent.m_left_index = child_index;
+
+        return child_index;
+    }
+
+    template <ValidTreeNode CodeTreeNode>
+    auto CodeTree<CodeTreeNode>::get_index_of_leaves() -> std::vector<std::size_t> {
+        auto indexes = std::vector<std::size_t>();
+
+        for (auto [node_index, tree_node]: std::views::enumerate(m_tree)) {
+            if (tree_node.is_leaf()) {
+                indexes.push_back(node_index);
+            }
+        }
+
+        return indexes;
+    }
+
+    template <ValidTreeNode CodeTreeNode>
+    auto CodeTree<CodeTreeNode>::get_code_map() -> std::unordered_map<Symbol<char>, CodeWord> {
+
+        auto code = std::unordered_map<Symbol<char>, CodeWord>();
+        auto leaf_nodes_indexes = get_index_of_leaves();
+
+        for (auto node_index: leaf_nodes_indexes) {
+            auto node = get_node_ref_from_index(node_index);
+            auto node_code_word = CodeWord();
+            auto current_node = node;
+
+            while (true) {
+                auto parent_index_opt = current_node.m_parent_index;
+                // We break out of the loop in case we found the root node
+                // (the node doesnt have a parent.
+                if (not parent_index_opt.has_value()) {
+                    break;
+                }
+
+                auto parent_index = parent_index_opt.value();
+                auto parent = get_node_ref_from_index(parent_index);
+
+                // Check if the current node its the right os the left child.
+                if (parent.m_left_index.value() == current_node.index().value()) { // NOLINT(bugprone-unchecked-optional-access)
+                    node_code_word.push_left_bit(this->left_branch_bit);
+                }
+                if (parent.m_right_index.value() == current_node.index().value()) { // NOLINT(bugprone-unchecked-optional-access)
+                    node_code_word.push_left_bit(this->right_branch_bit);
+                }
+
+                current_node = parent;
+            }
+
+            assert(node.has_symbol());
+            auto node_symb = node.m_symbol.value(); 
+            //auto node_symb = node.m_symbol.value(); // NOLINT(bugprone-unchecked-optional-access)
+            code[node_symb] = node_code_word;
+        }
+
+        return code;
+    }
+
+
+    template <typename Algo>
+    concept CodingAlgorithm = requires(SymbolList& symb_list) {
+        {
+            Algo::encode_symbol_list(symb_list)
+        } -> std::same_as<std::unordered_map<Symbol<char>, CodeWord>>;
+    };
+
+    class ShannonFano {
         public:
-            auto compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) -> std::vector<u8> override;
-            auto decompress_preprocessed_portuguese_text(std::vector<u8>&) -> PreprocessedPortugueseText override;
+            static auto encode_symbol_list(SymbolList& symb_list) -> std::unordered_map<Symbol<char>, CodeWord>;
+            static auto generate_code_tree(SymbolList& symb_list) -> CodeTree<SFTreeNode>;
     };
+
+    class Huffman {
+        public:
+            static auto encode_symbol_list(SymbolList& symb_list) -> std::unordered_map<Symbol<char>, CodeWord>;
+    };
+
+    template <typename T>
+    concept ProbabilityModel = StaticModel<T> || AdaptativeModel<T>;
+
+
+    template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
+    class Compressor
+    {
+        private:
+            outbit::BitBuffer m_bitbuffer;
+
+            template <StaticModel SModel>
+            auto static_compression(PreprocessedPortugueseText& msg, SymbolList& symb_list) -> std::vector<u8>;
+
+            template <StaticModel SModel>
+            auto static_decompression(std::vector<u8>& data, SymbolList& symb_list) -> PreprocessedPortugueseText;
+        public:
+            auto compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) -> std::vector<u8>;
+            auto decompress_preprocessed_portuguese_text(std::vector<u8>&) -> PreprocessedPortugueseText;
+
+    };
+
+    // TODO: usar um tipo generico iterável no lugar de PreprocessedPortugueseText
+    // para a msg
+    template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
+    template <StaticModel SModel>
+    auto Compressor<Model, CodingAlgo>::static_compression(PreprocessedPortugueseText& msg, SymbolList& symb_list) -> std::vector<u8> {
+
+        for (auto& symb: symb_list) {
+            symb.m_probability = SModel::probability_of(symb.m_symbol);
+        }
+
+        auto code = CodingAlgo::encode_symbol_list(symb_list);
+        auto msg_lenght = uint32_t(msg.as_string().size());
+        std::size_t total_bits{};
+
+        // Buffer of compressed data
+        auto outbuff = outbit::BitBuffer();
+        // Write symb count in the first 4 bytes.
+        outbuff.write(msg_lenght);
+        for (char ch: msg.as_string()) {
+            auto symb = Symbol {
+                .m_symbol = ch,
+                .m_probability = 0.0f, // Doenst matter
+            };
+
+            auto code_word = code.at(symb);
+            total_bits += code_word.length();
+            // NOTE: We do this to make the decompression more efficient.
+            code_word.reverse_valid_bits();
+            auto bits_as_ullong = code_word.m_bits.to_ullong();
+
+            outbuff.write_bits(bits_as_ullong, code_word.length());
+        }
+
+        auto bits_per_symb = float(total_bits) / float(msg.as_string().size());
+        std::println("bits per symb {}", bits_per_symb);
+        std::println("razao de comp {}", 5.0f / bits_per_symb);
+
+        return outbuff.buffer();
+    }
+
+    template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
+    auto Compressor<Model, CodingAlgo>::compress_preprocessed_portuguese_text(PreprocessedPortugueseText& text) -> std::vector<u8> {
+        assert(text.as_string().size() < std::size_t(std::numeric_limits<uint32_t>::max)
+                && "Input is too big.");
+
+        auto symb_list = SymbolList();
+
+        for (auto ch: PreprocessedPortugueseText::char_list) {
+            auto symb = Symbol {
+                .m_symbol = ch,
+            };
+            symb_list.push_char_symbol(symb);
+        }
+
+        return this->static_compression<Model>(text, symb_list);
+    }
+
+    template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
+    template <StaticModel SModel>
+    auto Compressor<Model, CodingAlgo>::static_decompression(std::vector<u8>& data, SymbolList& symb_list) -> PreprocessedPortugueseText {
+        for (auto& symbol: symb_list) {
+            symbol.m_probability = SModel::probability_of(symbol.m_symbol);
+        }
+
+        auto tree = CodingAlgo::generate_code_tree(symb_list);
+        auto inbuff = outbit::BitBuffer();
+        inbuff.read_from_vector(data);
+        // Write symb count in the first 4 bytes.
+        auto symb_count = inbuff.read_as<uint32_t>();
+
+        auto decompressed_text = std::string();
+
+        // Get the root node
+        for (uint32_t symb_index = 0; symb_index < symb_count; symb_index++) {
+            auto current_node = tree.get_node_ref_from_index(0);
+            auto code_word = CodeWord();
+            auto symbol = std::optional<Symbol<char>>();
+
+            while (true) {
+                auto current_bit = inbuff.read_bits_as<bool>(1);
+
+                if (current_bit) {
+                    assert(decltype(tree)::right_branch_bit);
+                    auto right_index = current_node.m_right_index.value();
+                    current_node = tree.get_node_ref_from_index(right_index);
+                } else {
+                    assert(!decltype(tree)::left_branch_bit);
+                    auto left_index = current_node.m_left_index.value();
+                    current_node = tree.get_node_ref_from_index(left_index);
+                }
+
+                code_word.push_right_bit(current_bit);
+
+                if (current_node.template has_content_of_type<Symbol<char>>()) {
+                    symbol = current_node.template get_content<Symbol<char>>();
+                    break;
+                }
+            }
+
+            //assert(code.at(symbol.value()).m_bits == code_word.m_bits);
+            decompressed_text += symbol.value().m_symbol;
+        }
+
+        return {decompressed_text};
+    }
+
+    template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
+    auto Compressor<Model, CodingAlgo>::decompress_preprocessed_portuguese_text(std::vector<u8>& data) -> PreprocessedPortugueseText {
+
+        auto symb_list = SymbolList();
+
+        for (auto ch: PreprocessedPortugueseText::char_list) {
+            auto symb = Symbol {
+                .m_symbol = ch,
+            };
+            symb_list.push_char_symbol(symb);
+        }
+
+        return this->static_decompression<Model>(data, symb_list);
+    }
 }
 
 template <>
-struct std::formatter<compadre::ShannonFanoTree> : std::formatter<std::string_view> {
-    auto format(const compadre::ShannonFanoTree& tree, std::format_context& ctx) const {
+struct std::formatter<compadre::CodeTree<compadre::SFTreeNode>> : std::formatter<std::string_view> {
+    auto format(const compadre::CodeTree<compadre::SFTreeNode>& tree, std::format_context& ctx) const {
         std::string temp;
 
         std::format_to(std::back_inserter(temp),
@@ -226,7 +543,7 @@ struct std::formatter<compadre::ShannonFanoTree> : std::formatter<std::string_vi
                         " (node={}, symb='{}')", node.index().value(), node_symbol);
             }
 
-            if (node.has_content_of_type<compadre::SFTreeNode::BranchNode>()) {
+            if (node.has_content_of_type<compadre::BranchNode>()) {
                 std::format_to(std::back_inserter(temp),
                         " (node={}, 'branch')", node.index().value());
             }

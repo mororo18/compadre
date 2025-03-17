@@ -19,7 +19,7 @@ namespace compadre {
         'X', 'Y', 'Z'
     };
 
-    std::unordered_map<char, float> PreprocessedPortugueseText::char_frequencies = {
+    std::unordered_map<char, float> PreprocessedPortugueseText::StaticModel::char_frequencies = {
         {' ', 17.00}, {'E', 14.63}, {'A', 13.72}, {'O', 10.73}, {'S', 7.81},
         {'R', 6.53},  {'I', 6.18},  {'N', 5.05},  {'D', 4.99},  {'M', 4.74},
         {'U', 4.63},  {'T', 4.34},  {'C', 3.88},  {'L', 2.78},  {'P', 2.52},
@@ -104,11 +104,6 @@ namespace compadre {
             });
     }
 
-    SFTreeNode::SFTreeNode(NodeContent content)
-        : m_content(std::move(content))
-    {
-    }
-
     std::pair<SymbolList, SymbolList> SFTreeNode::slip_symbol_list(SymbolList& symb_list) {
         float total_propability = 0.0f;
 
@@ -147,62 +142,16 @@ namespace compadre {
         return std::make_pair(left, right);
     }
 
-    ShannonFanoTree::ShannonFanoTree(SymbolList& symb_list) {
+    auto ShannonFano::generate_code_tree(SymbolList& symb_list) -> CodeTree<SFTreeNode> {
         auto sorted = symb_list;
         sorted.sort();
-        auto root = SFTreeNode(sorted);
-        push_node(root);
 
-        m_symb_list = sorted;
-    }
+        auto tree = CodeTree<SFTreeNode>(sorted);
+        tree.push_node(SFTreeNode(sorted));
 
-    Bit ShannonFanoTree::left_branch_bit = false; // 0
-    Bit ShannonFanoTree::right_branch_bit = true; // 1
+        assert(tree.nodes_count() == 1);
 
-    std::size_t ShannonFanoTree::push_node(const SFTreeNode& node) {
-        assert(not node.is_empty());
-
-        for (auto [node_index, tree_node]: std::views::enumerate(m_tree)) {
-            if (tree_node.is_empty()) {
-                tree_node = node;
-                tree_node.m_index = node_index;
-                return node_index;
-            }
-        }
-
-        m_tree.push_back(node);
-        m_tree.back().m_index = m_tree.size() - 1;
-        return m_tree.size() - 1;
-    }
-
-    std::size_t ShannonFanoTree::add_right_child_to(std::size_t parent_index, const SFTreeNode& child) {
-        auto child_index = push_node(child); 
-
-        auto& child_ref = get_node_ref_from_index(child_index);
-        child_ref.m_parent_index = parent_index;
-
-        auto& parent = get_node_ref_from_index(parent_index);
-        parent.m_right_index = child_index;
-
-        return child_index;
-    }
-
-    std::size_t ShannonFanoTree::add_left_child_to(std::size_t parent_index, const SFTreeNode& child) {
-        auto child_index = push_node(child); 
-
-        auto& child_ref = get_node_ref_from_index(child_index);
-        child_ref.m_parent_index = parent_index;
-
-        auto& parent = get_node_ref_from_index(parent_index);
-        parent.m_left_index = child_index;
-
-        return child_index;
-    }
-
-    std::unordered_map<Symbol<char>, CodeWord> ShannonFanoTree::generate_codes() {
-        assert(m_tree.size() == 1);
-
-        auto root = m_tree.front();
+        auto root = tree.get_node_ref_from_index(0);
         assert(root.index().value() == 0); // NOLINT(bugprone-unchecked-optional-access)
         auto stack = std::vector<SFTreeNode>{root};
         auto leaf_nodes_indexes = std::vector<std::size_t>();
@@ -228,26 +177,35 @@ namespace compadre {
 
             // If the SymbolList of the node has only one Symbol<char>
             // We re-assing its content with that Symbol<char>.
-            auto left_content = SFTreeNode::NodeContent(left_list);
+            auto left_content = SFTreeNodeContent(left_list);
             if (left_list.size() == 1) {
                 left_content = left_list.front();
             }
-            auto right_content = SFTreeNode::NodeContent(right_list);
+            auto right_content = SFTreeNodeContent(right_list);
             if (right_list.size() == 1) {
                 right_content = right_list.front();
             }
+
             auto left_child = SFTreeNode(left_content);
             auto right_child = SFTreeNode(right_content);
+            //
+            // Store the indexes of the nodes that have a Symbol as content
+            if (left_child.has_content_of_type<Symbol<char>>()) {
+                left_child.m_symbol = left_child.get_content<Symbol<char>>().value();
+            }
+            if (right_child.has_content_of_type<Symbol<char>>()) {
+                right_child.m_symbol = right_child.get_content<Symbol<char>>().value();
+            }
 
             // Add nodes to tree
             auto parent_index = node.index().value(); // NOLINT(bugprone-unchecked-optional-access)
-            auto left_index = add_left_child_to(parent_index, left_child);
-            auto right_index = add_right_child_to(parent_index, right_child);
+            auto left_index = tree.add_left_child_to(parent_index, left_child);
+            auto right_index = tree.add_right_child_to(parent_index, right_child);
 
             left_child.m_index = left_index;
             right_child.m_index = right_index;
 
-            auto parent_node = get_node_ref_from_index(parent_index);
+            auto parent_node = tree.get_node_ref_from_index(parent_index);
 
 
             // Push the node into de stack if its content still is
@@ -268,13 +226,16 @@ namespace compadre {
             }
 
             // Set the the parent node as a BranchNode.
-            get_node_ref_from_index(parent_index)
-                .set_content(SFTreeNode::BranchNode{});
+            tree.get_node_ref_from_index(parent_index)
+                .set_content(BranchNode{});
         }
+
+        /*
+        auto code = std::unordered_map<Symbol<char>, CodeWord>();
 
         // Get the code-words
         for (auto node_index: leaf_nodes_indexes) {
-            auto node = get_node_ref_from_index(node_index);
+            auto node = tree.get_node_ref_from_index(node_index);
             auto node_code_word = CodeWord();
             auto current_node = node;
             while (true) {
@@ -286,22 +247,23 @@ namespace compadre {
                 }
 
                 auto parent_index = parent_index_opt.value();
-                auto parent = get_node_ref_from_index(parent_index);
+                auto parent = tree.get_node_ref_from_index(parent_index);
 
                 // Check if the current node its the right os the left child.
                 if (parent.m_left_index.value() == current_node.index().value()) { // NOLINT(bugprone-unchecked-optional-access)
-                    node_code_word.push_left_bit(ShannonFanoTree::left_branch_bit);
+                    node_code_word.push_left_bit(CodeTree<SFTreeNode>::left_branch_bit);
                 }
                 if (parent.m_right_index.value() == current_node.index().value()) { // NOLINT(bugprone-unchecked-optional-access)
-                    node_code_word.push_left_bit(ShannonFanoTree::right_branch_bit);
+                    node_code_word.push_left_bit(CodeTree<SFTreeNode>::right_branch_bit);
                 }
 
                 current_node = parent;
             }
 
             auto node_symb = node.get_content<Symbol<char>>().value(); // NOLINT(bugprone-unchecked-optional-access)
-            m_code[node_symb] = node_code_word;
+            code[node_symb] = node_code_word;
         }
+        */
 
         // Print code-words
         /*
@@ -323,10 +285,16 @@ namespace compadre {
         }
         */
 
-        return m_code;
+        return tree;
     }
 
-    auto ShannonFano::compress_preprocessed_portuguese_text(PreprocessedPortugueseText& text) -> std::vector<u8> {
+    auto ShannonFano::encode_symbol_list(SymbolList& symb_list) -> std::unordered_map<Symbol<char>, CodeWord> {
+        auto code_tree = ShannonFano::generate_code_tree(symb_list);
+        return code_tree.get_code_map();
+    }
+
+    /*
+    auto StaticCompressor::compress_preprocessed_portuguese_text(PreprocessedPortugueseText& text) -> std::vector<u8> {
         assert(text.as_string().size() < std::size_t(std::numeric_limits<uint32_t>::max)
                 && "Input is too big.");
 
@@ -430,4 +398,5 @@ namespace compadre {
 
         return {decompressed_text};
     }
+    */
 }

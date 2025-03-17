@@ -27,11 +27,11 @@ UTEST(Shannon_Fano, preproc_little_roundtrip) {
         "a sabedoria humana não vale um par de botas curtas."
     );
 
-    auto compressor = compadre::ShannonFano();
+    auto compressor = compadre::Compressor<compadre::PreprocessedPortugueseText::StaticModel, compadre::ShannonFano>();
     auto compressed_data = compressor.compress_preprocessed_portuguese_text(preproc);
 
     // TODO: check if its necessary reconstruct the compressor object.
-    compressor = compadre::ShannonFano();
+    compressor = compadre::Compressor<compadre::PreprocessedPortugueseText::StaticModel, compadre::ShannonFano>();
     auto decompressed_text = compressor.decompress_preprocessed_portuguese_text(compressed_data);
 
     ASSERT_EQ(preproc.as_string().size(), decompressed_text.as_string().size());
@@ -95,25 +95,25 @@ UTEST(SFTreeNode, slip_symbol_list) {
 UTEST(SFTreeNode, inner_content_related_methods) {
     auto node = compadre::SFTreeNode(compadre::SymbolList());
     ASSERT_TRUE(node.has_content_of_type<compadre::SymbolList>());
-    ASSERT_FALSE(node.has_content_of_type<compadre::SFTreeNode::EmptyNode>());
-    ASSERT_FALSE(node.has_content_of_type<compadre::SFTreeNode::BranchNode>());
+    ASSERT_FALSE(node.is_empty());
+    ASSERT_FALSE(node.has_content_of_type<compadre::BranchNode>());
     ASSERT_FALSE(node.has_content_of_type<compadre::Symbol<char>>());
 
     node.set_content(compadre::Symbol<char>{});
     ASSERT_TRUE(node.has_content_of_type<compadre::Symbol<char>>());
     ASSERT_FALSE(node.has_content_of_type<compadre::SymbolList>());
-    ASSERT_FALSE(node.has_content_of_type<compadre::SFTreeNode::EmptyNode>());
-    ASSERT_FALSE(node.has_content_of_type<compadre::SFTreeNode::BranchNode>());
+    ASSERT_FALSE(node.is_empty());
+    ASSERT_FALSE(node.has_content_of_type<compadre::BranchNode>());
 
-    node.set_content(compadre::SFTreeNode::EmptyNode{});
-    ASSERT_TRUE(node.has_content_of_type<compadre::SFTreeNode::EmptyNode>());
+    node.clear_content();
+    ASSERT_TRUE(node.is_empty());
     ASSERT_FALSE(node.has_content_of_type<compadre::Symbol<char>>());
     ASSERT_FALSE(node.has_content_of_type<compadre::SymbolList>());
-    ASSERT_FALSE(node.has_content_of_type<compadre::SFTreeNode::BranchNode>());
+    ASSERT_FALSE(node.has_content_of_type<compadre::BranchNode>());
 
-    node.set_content(compadre::SFTreeNode::BranchNode{});
-    ASSERT_TRUE(node.has_content_of_type<compadre::SFTreeNode::BranchNode>());
-    ASSERT_FALSE(node.has_content_of_type<compadre::SFTreeNode::EmptyNode>());
+    node.set_content(compadre::BranchNode{});
+    ASSERT_TRUE(node.has_content_of_type<compadre::BranchNode>());
+    ASSERT_FALSE(node.is_empty());
     ASSERT_FALSE(node.has_content_of_type<compadre::Symbol<char>>());
     ASSERT_FALSE(node.has_content_of_type<compadre::SymbolList>());
 

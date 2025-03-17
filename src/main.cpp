@@ -5,6 +5,7 @@
 #include <ranges>
 #include <fstream>
 #include <streambuf>
+#include <print>
 
 auto collect_args(int argc, const char * argv[]) -> std::vector<std::string_view> { // NOLINT(modernize-avoid-c-arrays)
     auto args = std::vector<std::string_view>();
@@ -137,20 +138,21 @@ int main(int argc, const char * argv[]) {
                 std::istreambuf_iterator<char>()
                 );
         auto preproc = compadre::PreprocessedPortugueseText(input_text);
-        auto compressor = compadre::ShannonFano();
+        auto compressor =
+            compadre::Compressor<compadre::PreprocessedPortugueseText::StaticModel, compadre::ShannonFano>();
         auto compressed_data = compressor.compress_preprocessed_portuguese_text(preproc);
 
         // Write output
         auto outbuff = outbit::BitBuffer();
         outbuff.read_from_vector(compressed_data);
         outbuff.write_as_file(user_input.output_filename);
-
     } else if (user_input.decompression_mode) {
         auto inbuff = outbit::BitBuffer();
         inbuff.read_from_file(user_input.input_filename.value());
         auto data = inbuff.buffer();
 
-        auto compressor = compadre::ShannonFano();
+        auto compressor =
+            compadre::Compressor<compadre::PreprocessedPortugueseText::StaticModel, compadre::ShannonFano>();
         auto decompressed_text = compressor.decompress_preprocessed_portuguese_text(data);
 
         auto decompressed_data = std::vector<outbit::u8>();
@@ -162,7 +164,6 @@ int main(int argc, const char * argv[]) {
         outbuff.read_from_vector(decompressed_data);
         outbuff.write_as_file(user_input.output_filename);
     }
-
 
     return 0;
 }
