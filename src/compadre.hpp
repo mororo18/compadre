@@ -46,11 +46,62 @@ namespace compadre {
 
     template<typename T>
     struct Symbol {
-        T m_symbol;
-        float m_probability;
+        private:
+            std::optional<T> m_symbol;
+            std::optional<float> m_probability;
+        public:
+            using inner_type = T;
+            Symbol() = default;
+            Symbol(T symb)
+                : m_symbol(symb)
+            {
+            }
+
+            Symbol(T symb, float probability)
+                : m_symbol(symb), m_probability(probability)
+            {
+            }
+
+            void set_probability(float probability) {
+                m_probability = probability;
+            }
+
+            std::optional<float> probability() {
+                return m_probability;
+            }
+
+            std::optional<T> inner() {
+                return m_symbol;
+            }
+
+            [[nodiscard]]
+            std::optional<T> inner() const {
+                return m_symbol;
+            }
+
+            bool is_unknown() {
+                return !m_symbol.has_value();
+            }
+
+            [[nodiscard]]
+            bool is_unknown() const {
+                return !m_symbol.has_value();
+            }
+
+            bool has_probability() {
+                return m_probability.has_value();
+            }
 
         bool operator==(const Symbol& other) const {
-            return m_symbol == other.m_symbol;
+            bool same_symbol = m_symbol.has_value() && !other.is_unknown();
+
+            if (!is_unknown() && !other.is_unknown()) {
+                same_symbol = m_symbol.value() == other.inner().value();
+            }
+
+            bool both_unknwon = is_unknown() && other.is_unknown();
+
+            return same_symbol || both_unknwon;
         }
     };
 
@@ -86,6 +137,38 @@ namespace compadre {
             }
 
             inline std::size_t length() { return m_bit_count; }
+    };
+
+    template<typename SpecializedSymbol>
+    concept ValidSymbol =
+    std::same_as<SpecializedSymbol, Symbol<typename SpecializedSymbol::inner_type>>;
+
+    template<ValidSymbol SpecializedSymbol>
+    class Code {
+        using T = SpecializedSymbol::inner_type;
+        std::vector<std::pair<Symbol<T>, CodeWord>> m_code;
+
+        public:
+        auto get(Symbol<T> symb) -> std::optional<CodeWord> {
+            for (auto& [symbol, cword] : m_code) {
+                if (symb == symbol) {
+                    return std::make_optional(cword);
+                }
+            }
+
+            return std::nullopt;
+        }
+
+        void set(Symbol<T> symb, CodeWord code_word) {
+            for (auto& [symbol, cword] : m_code) {
+                if (symb == symbol) {
+                    cword = code_word;
+                    return;
+                }
+            }
+
+            m_code.push_back(std::make_pair(symb, code_word));
+        }
     };
 
     class SymbolList {
@@ -206,16 +289,8 @@ namespace compadre {
     };
 }
 
-// NOTE: This specialization needs to be declared before the
-// ShannonFanoTree class.
-template <>
-struct std::hash<compadre::Symbol<char>> {
-    size_t operator()(const compadre::Symbol<char> &s) const {
-        return std::hash<char>()(s.m_symbol);
-    }
-};
-
 namespace compadre {
+    // A ValidTreeNode is a class that inherits CodeTreeNode<T>
     template <typename DerivedTreeNode>
     concept ValidTreeNode =
         std::is_base_of_v<CodeTreeNode<typename DerivedTreeNode::content_type>, DerivedTreeNode>;
@@ -226,7 +301,8 @@ namespace compadre {
         private:
             std::vector<CodeTreeNode> m_tree;
             SymbolList m_symb_list;
-            std::unordered_map<Symbol<char>, CodeWord> m_code;
+            //std::unordered_map<Symbol<char>, CodeWord> m_code;
+            Code<Symbol<char>> m_code;
         public:
             static const Bit left_branch_bit = false;
             static const Bit right_branch_bit = true;
@@ -234,7 +310,7 @@ namespace compadre {
             std::size_t push_node(const CodeTreeNode& node);
             std::size_t add_left_child_to(std::size_t parent_index, const CodeTreeNode& child);
             std::size_t add_right_child_to(std::size_t parent_index, const CodeTreeNode& child);
-            auto get_code_map() -> std::unordered_map<Symbol<char>, CodeWord>;
+            auto get_code_map() -> Code<Symbol<char>>;
             inline CodeTreeNode& get_node_ref_from_index(std::size_t index) {
                 assert(index < m_tree.size());
 
@@ -325,9 +401,9 @@ namespace compadre {
     }
 
     template <ValidTreeNode CodeTreeNode>
-    auto CodeTree<CodeTreeNode>::get_code_map() -> std::unordered_map<Symbol<char>, CodeWord> {
+    auto CodeTree<CodeTreeNode>::get_code_map() -> Code<Symbol<char>> {
 
-        auto code = std::unordered_map<Symbol<char>, CodeWord>();
+        auto code = Code<Symbol<char>>();
         auto leaf_nodes_indexes = get_index_of_leaves();
 
         for (auto node_index: leaf_nodes_indexes) {
@@ -360,7 +436,7 @@ namespace compadre {
             assert(node.has_symbol());
             auto node_symb = node.m_symbol.value(); 
             //auto node_symb = node.m_symbol.value(); // NOLINT(bugprone-unchecked-optional-access)
-            code[node_symb] = node_code_word;
+            code.set(node_symb, node_code_word);
         }
 
         return code;
@@ -371,18 +447,18 @@ namespace compadre {
     concept CodingAlgorithm = requires(SymbolList& symb_list) {
         {
             Algo::encode_symbol_list(symb_list)
-        } -> std::same_as<std::unordered_map<Symbol<char>, CodeWord>>;
+        } -> std::same_as<Code<Symbol<char>>>;
     };
 
     class ShannonFano {
         public:
-            static auto encode_symbol_list(SymbolList& symb_list) -> std::unordered_map<Symbol<char>, CodeWord>;
+            static auto encode_symbol_list(SymbolList& symb_list) -> Code<Symbol<char>>;
             static auto generate_code_tree(SymbolList& symb_list) -> CodeTree<SFTreeNode>;
     };
 
     class Huffman {
         public:
-            static auto encode_symbol_list(SymbolList& symb_list) -> std::unordered_map<Symbol<char>, CodeWord>;
+            static auto encode_symbol_list(SymbolList& symb_list) -> Code<Symbol<char>>;
     };
 
     template <typename T>
@@ -413,7 +489,7 @@ namespace compadre {
     auto Compressor<Model, CodingAlgo>::static_compression(PreprocessedPortugueseText& msg, SymbolList& symb_list) -> std::vector<u8> {
 
         for (auto& symb: symb_list) {
-            symb.m_probability = SModel::probability_of(symb.m_symbol);
+            symb.set_probability(SModel::probability_of(symb.inner().value()));
         }
 
         auto code = CodingAlgo::encode_symbol_list(symb_list);
@@ -425,12 +501,9 @@ namespace compadre {
         // Write symb count in the first 4 bytes.
         outbuff.write(msg_lenght);
         for (char ch: msg.as_string()) {
-            auto symb = Symbol {
-                .m_symbol = ch,
-                .m_probability = 0.0f, // Doenst matter
-            };
+            auto symb = Symbol(ch);
 
-            auto code_word = code.at(symb);
+            auto code_word = code.get(symb).value();
             total_bits += code_word.length();
             // NOTE: We do this to make the decompression more efficient.
             code_word.reverse_valid_bits();
@@ -440,8 +513,8 @@ namespace compadre {
         }
 
         auto bits_per_symb = float(total_bits) / float(msg.as_string().size());
-        std::println("bits per symb {}", bits_per_symb);
-        std::println("razao de comp {}", 5.0f / bits_per_symb);
+        //std::println("bits per symb {}", bits_per_symb);
+        //std::println("razao de comp {}", 5.0f / bits_per_symb);
 
         return outbuff.buffer();
     }
@@ -454,9 +527,7 @@ namespace compadre {
         auto symb_list = SymbolList();
 
         for (auto ch: PreprocessedPortugueseText::char_list) {
-            auto symb = Symbol {
-                .m_symbol = ch,
-            };
+            auto symb = Symbol(ch);
             symb_list.push_char_symbol(symb);
         }
 
@@ -467,7 +538,7 @@ namespace compadre {
     template <StaticModel SModel>
     auto Compressor<Model, CodingAlgo>::static_decompression(std::vector<u8>& data, SymbolList& symb_list) -> PreprocessedPortugueseText {
         for (auto& symbol: symb_list) {
-            symbol.m_probability = SModel::probability_of(symbol.m_symbol);
+            symbol.set_probability(SModel::probability_of(symbol.inner().value()));
         }
 
         auto tree = CodingAlgo::generate_code_tree(symb_list);
@@ -506,7 +577,7 @@ namespace compadre {
             }
 
             //assert(code.at(symbol.value()).m_bits == code_word.m_bits);
-            decompressed_text += symbol.value().m_symbol;
+            decompressed_text += symbol.value().inner().value();
         }
 
         return {decompressed_text};
@@ -518,9 +589,7 @@ namespace compadre {
         auto symb_list = SymbolList();
 
         for (auto ch: PreprocessedPortugueseText::char_list) {
-            auto symb = Symbol {
-                .m_symbol = ch,
-            };
+            auto symb = Symbol(ch);
             symb_list.push_char_symbol(symb);
         }
 
@@ -538,7 +607,7 @@ struct std::formatter<compadre::CodeTree<compadre::SFTreeNode>> : std::formatter
 
         for (auto& node: tree) {
             if (node.has_content_of_type<compadre::Symbol<char>>()) {
-                auto node_symbol = node.get_content<compadre::Symbol<char>>().value().m_symbol;
+                auto node_symbol = node.get_content<compadre::Symbol<char>>().value().inner().value();
                 std::format_to(std::back_inserter(temp),
                         " (node={}, symb='{}')", node.index().value(), node_symbol);
             }

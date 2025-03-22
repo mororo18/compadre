@@ -126,10 +126,6 @@ int main(int argc, const char * argv[]) {
     auto args = collect_args(argc, argv);
     auto user_input = treat_args(args);
 
-    for (auto& arg: args) {
-        std::println("{}", arg);
-    }
-
 
     if (user_input.compression_mode) {
         auto t = std::ifstream(user_input.input_filename.value());

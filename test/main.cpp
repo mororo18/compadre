@@ -44,25 +44,11 @@ UTEST(Shannon_Fano, preproc_little_roundtrip) {
 UTEST(SFTreeNode, slip_symbol_list) {
     auto symb_list = compadre::SymbolList();
 
-    auto A = compadre::Symbol {
-        .m_symbol=char('A'),
-        .m_probability=20.0f,
-    };
+    auto A = compadre::Symbol<char>('A', 20.0f);
+    auto B = compadre::Symbol<char>('B', 20.0f);
+    auto C = compadre::Symbol<char>('C', 20.0f);
+    auto D = compadre::Symbol<char>('D', 20.0f);
 
-    auto B = compadre::Symbol {
-        .m_symbol=char('B'),
-        .m_probability=20.0f,
-    };
-
-    auto C = compadre::Symbol {
-        .m_symbol=char('C'),
-        .m_probability=20.0f,
-    };
-
-    auto D = compadre::Symbol {
-        .m_symbol=char('D'),
-        .m_probability=20.0f,
-    };
 
     symb_list.push_char_symbol(A);
 
@@ -99,7 +85,7 @@ UTEST(SFTreeNode, inner_content_related_methods) {
     ASSERT_FALSE(node.has_content_of_type<compadre::BranchNode>());
     ASSERT_FALSE(node.has_content_of_type<compadre::Symbol<char>>());
 
-    node.set_content(compadre::Symbol<char>{});
+    node.set_content(compadre::Symbol<char>());
     ASSERT_TRUE(node.has_content_of_type<compadre::Symbol<char>>());
     ASSERT_FALSE(node.has_content_of_type<compadre::SymbolList>());
     ASSERT_FALSE(node.is_empty());
@@ -121,9 +107,9 @@ UTEST(SFTreeNode, inner_content_related_methods) {
     auto symb_list = node.get_content<compadre::SymbolList>().value();
     ASSERT_TRUE(typeid(symb_list) == typeid(compadre::SymbolList{}));
 
-    node.set_content(compadre::Symbol<char>{});
+    node.set_content(compadre::Symbol<char>());
     auto symb = node.get_content<compadre::Symbol<char>>().value();
-    ASSERT_TRUE(typeid(symb) == typeid(compadre::Symbol<char>{}));
+    ASSERT_TRUE(typeid(symb) == typeid(compadre::Symbol<char>));
 }
 
 UTEST_MAIN()

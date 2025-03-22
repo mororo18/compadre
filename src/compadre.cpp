@@ -93,14 +93,14 @@ namespace compadre {
     void SymbolList::sort() {
         std::ranges::sort(m_list,
             [](decltype(m_list)::value_type a, decltype(m_list)::value_type b) {
-                return a.m_probability < b.m_probability;
+                return a.probability().value() < b.probability().value();
             });
     }
 
     bool SymbolList::is_sorted() {
         return std::ranges::is_sorted(m_list,
             [](decltype(m_list)::value_type a, decltype(m_list)::value_type b) {
-                return a.m_probability < b.m_probability;
+                return a.probability().value() < b.probability().value();
             });
     }
 
@@ -108,7 +108,7 @@ namespace compadre {
         float total_propability = 0.0f;
 
         for (auto symb: symb_list) {
-            total_propability += symb.m_probability;
+            total_propability += symb.probability().value();
         }
 
         float half_propability = total_propability / 2.0f;
@@ -118,7 +118,7 @@ namespace compadre {
 
         auto current_total = 0.0f;
         for (auto [symb_index, symb]: std::views::enumerate(symb_list)) {
-            current_total += symb.m_probability;
+            current_total += symb.probability().value();
             float diff_to_half = std::abs(half_propability - current_total);
 
             if (diff_to_half < min_diff) {
@@ -188,7 +188,7 @@ namespace compadre {
 
             auto left_child = SFTreeNode(left_content);
             auto right_child = SFTreeNode(right_content);
-            //
+
             // Store the indexes of the nodes that have a Symbol as content
             if (left_child.has_content_of_type<Symbol<char>>()) {
                 left_child.m_symbol = left_child.get_content<Symbol<char>>().value();
@@ -288,7 +288,7 @@ namespace compadre {
         return tree;
     }
 
-    auto ShannonFano::encode_symbol_list(SymbolList& symb_list) -> std::unordered_map<Symbol<char>, CodeWord> {
+    auto ShannonFano::encode_symbol_list(SymbolList& symb_list) -> Code<Symbol<char>> {
         auto code_tree = ShannonFano::generate_code_tree(symb_list);
         return code_tree.get_code_map();
     }
