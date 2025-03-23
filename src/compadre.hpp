@@ -17,12 +17,12 @@ namespace compadre {
 
     template<typename Model>
     concept StaticModel = requires(char symb) {
-        { Model::probability_of(symb) } -> std::same_as<float>;
+        { Model::occurencies_of(symb) } -> std::same_as<uint32_t>;
     };
 
     template<typename Model>
     concept AdaptativeModel = requires(char symb) {
-        { Model::new_probability_of(symb) } -> std::same_as<float>;
+        { Model::new_probability_of(symb) } -> std::same_as<uint32_t>;
     };
 
     class PreprocessedPortugueseText {
@@ -38,44 +38,54 @@ namespace compadre {
                     static std::unordered_map<char, float> char_frequencies;
 
                     inline
-                    static auto probability_of(char symb) -> float {
-                        return char_list[symb];
+                    static auto occurencies_of(char symb) -> uint32_t {
+                        return uint32_t(char_list[symb] * 1000.0);
                     }
             };
     };
 
-    template<typename T>
+    template<typename InnerType, typename Attribute>
     struct Symbol {
         private:
-            std::optional<T> m_symbol;
-            std::optional<float> m_probability;
+            std::optional<InnerType> m_symbol;
+            std::optional<Attribute> m_attribute;
         public:
-            using inner_type = T;
+            using inner_type = InnerType;
+            using attribute_type = Attribute;
+
             Symbol() = default;
-            Symbol(T symb)
+            Symbol(InnerType symb)
                 : m_symbol(symb)
             {
             }
-
-            Symbol(T symb, float probability)
-                : m_symbol(symb), m_probability(probability)
+            Symbol(InnerType symb, Attribute att)
+                : m_symbol(symb), m_attribute(att)
             {
             }
 
-            void set_probability(float probability) {
-                m_probability = probability;
+            void set_attribute(Attribute att) {
+                m_attribute = att;
             }
 
-            std::optional<float> probability() {
-                return m_probability;
+            std::optional<Attribute> attribute() {
+                return m_attribute;
             }
 
-            std::optional<T> inner() {
+            [[nodiscard]]
+            std::optional<Attribute> attribute() const {
+                return m_attribute;
+            }
+
+            bool has_attribute() {
+                return m_attribute.has_value();
+            }
+
+            std::optional<InnerType> inner() {
                 return m_symbol;
             }
 
             [[nodiscard]]
-            std::optional<T> inner() const {
+            std::optional<InnerType> inner() const {
                 return m_symbol;
             }
 
@@ -86,10 +96,6 @@ namespace compadre {
             [[nodiscard]]
             bool is_unknown() const {
                 return !m_symbol.has_value();
-            }
-
-            bool has_probability() {
-                return m_probability.has_value();
             }
 
         bool operator==(const Symbol& other) const {
@@ -141,15 +147,15 @@ namespace compadre {
 
     template<typename SpecializedSymbol>
     concept ValidSymbol =
-    std::same_as<SpecializedSymbol, Symbol<typename SpecializedSymbol::inner_type>>;
+    std::same_as<SpecializedSymbol,
+        Symbol<typename SpecializedSymbol::inner_type, typename SpecializedSymbol::attribute_type>>;
 
     template<ValidSymbol SpecializedSymbol>
     class Code {
-        using T = SpecializedSymbol::inner_type;
-        std::vector<std::pair<Symbol<T>, CodeWord>> m_code;
+        std::vector<std::pair<SpecializedSymbol, CodeWord>> m_code;
 
         public:
-        auto get(Symbol<T> symb) -> std::optional<CodeWord> {
+        auto get(SpecializedSymbol symb) -> std::optional<CodeWord> {
             for (auto& [symbol, cword] : m_code) {
                 if (symb == symbol) {
                     return std::make_optional(cword);
@@ -159,7 +165,7 @@ namespace compadre {
             return std::nullopt;
         }
 
-        void set(Symbol<T> symb, CodeWord code_word) {
+        void set(SpecializedSymbol symb, CodeWord code_word) {
             for (auto& [symbol, cword] : m_code) {
                 if (symb == symbol) {
                     cword = code_word;
@@ -171,12 +177,14 @@ namespace compadre {
         }
     };
 
+    template<ValidSymbol SpecializedSymbol>
     class SymbolList {
+        using symbol_type = SpecializedSymbol;
         public:
             SymbolList() = default;
-            void sort();
+            void sort_by_attribute();
             bool is_sorted();
-            void push_char_symbol(Symbol<char> symb);
+            void push(SpecializedSymbol symb);
             
             [[nodiscard]]
             inline auto cbegin() const noexcept { return m_list.cbegin(); }
@@ -187,20 +195,44 @@ namespace compadre {
             inline auto end() noexcept { return m_list.end(); }
 
             inline std::size_t size() { return m_list.size(); }
-            inline Symbol<char> front() { return *m_list.begin(); }
+            inline SpecializedSymbol front() { return *m_list.begin(); }
         private:
-            std::vector<Symbol<char>> m_list;
+            std::vector<SpecializedSymbol> m_list;
     };
 
+    template<ValidSymbol SpecializedSymbol>
+    void SymbolList<SpecializedSymbol>::push(SpecializedSymbol symb) {
+        m_list.push_back(symb);
+    }
 
-    template<typename Content>
+    // TODO: write test
+    template<ValidSymbol SpecializedSymbol>
+    void SymbolList<SpecializedSymbol>::sort_by_attribute() {
+        std::ranges::sort(m_list,
+            [](const SpecializedSymbol a, const SpecializedSymbol b) {
+                auto a_attr = a.attribute().value();
+                auto b_attr = b.attribute().value();
+                return a_attr < b_attr;
+            });
+    }
+
+    template<ValidSymbol SpecializedSymbol>
+    bool SymbolList<SpecializedSymbol>::is_sorted() {
+        return std::ranges::is_sorted(m_list,
+            [](SpecializedSymbol a, SpecializedSymbol b) {
+                return a.attribute().value() < b.attribute().value();
+            });
+    }
+
+    template<typename Content, ValidSymbol SpecializedSymbol>
     class CodeTreeNode {
 
         public:
             using content_type = Content;
+            using symbol_type = SpecializedSymbol;
 
             std::optional<Content> m_content;
-            std::optional<Symbol<char>> m_symbol;
+            std::optional<SpecializedSymbol> m_symbol;
             std::optional<std::size_t> m_index;
             std::optional<std::size_t> m_left_index;
             std::optional<std::size_t> m_right_index;
@@ -219,6 +251,12 @@ namespace compadre {
             {
             }
 
+            CodeTreeNode(Content content, SpecializedSymbol symbol)
+                : m_content(std::move(content)), m_symbol(std::move(symbol))
+            {
+            }
+
+
             inline void set_content(Content new_content) {
                 m_content = std::move(new_content);
             }
@@ -232,13 +270,18 @@ namespace compadre {
             inline std::optional<std::size_t> index() { return m_index; }
 
             [[nodiscard]]
+            inline std::optional<SpecializedSymbol> symbol() const { return m_symbol; }
+            inline std::optional<SpecializedSymbol> symbol() { return m_symbol; }
+
+            [[nodiscard]]
             inline std::optional<Content> get_content() const { return m_content; }
             inline std::optional<Content> get_content() { return m_content; }
     };
 
     class BranchNode {};
-    using SFTreeNodeContent = std::variant<Symbol<char>, SymbolList, BranchNode>;
-    class SFTreeNode : public CodeTreeNode<SFTreeNodeContent> {
+    using SFSymbol = Symbol<char, uint32_t>;
+    using SFTreeNodeContent = std::variant<SFSymbol, SymbolList<SFSymbol>, BranchNode>;
+    class SFTreeNode : public CodeTreeNode<SFTreeNodeContent, SFSymbol> {
         public:
 
             SFTreeNode(SFTreeNodeContent content) : CodeTreeNode(content)
@@ -246,7 +289,7 @@ namespace compadre {
             }
 
             static
-            std::pair<SymbolList, SymbolList> slip_symbol_list(SymbolList& symb_list);
+            std::pair<SymbolList<SFSymbol>, SymbolList<SFSymbol>> slip_symbol_list(SymbolList<SFSymbol>& symb_list);
 
             template<typename ContentVariant>
             inline bool has_content_of_type() {
@@ -293,24 +336,24 @@ namespace compadre {
     // A ValidTreeNode is a class that inherits CodeTreeNode<T>
     template <typename DerivedTreeNode>
     concept ValidTreeNode =
-        std::is_base_of_v<CodeTreeNode<typename DerivedTreeNode::content_type>, DerivedTreeNode>;
+        std::is_base_of_v<CodeTreeNode<typename DerivedTreeNode::content_type, typename DerivedTreeNode::symbol_type>, DerivedTreeNode>;
 
 
     template <ValidTreeNode CodeTreeNode>
     class CodeTree {
+        using symbol_type =  CodeTreeNode::symbol_type;
         private:
             std::vector<CodeTreeNode> m_tree;
-            SymbolList m_symb_list;
-            //std::unordered_map<Symbol<char>, CodeWord> m_code;
-            Code<Symbol<char>> m_code;
+            Code<symbol_type> m_code;
         public:
             static const Bit left_branch_bit = false;
             static const Bit right_branch_bit = true;
-            CodeTree(SymbolList& symb_list);
+            CodeTree() = default;
+            CodeTree(const CodeTreeNode& root);
             std::size_t push_node(const CodeTreeNode& node);
             std::size_t add_left_child_to(std::size_t parent_index, const CodeTreeNode& child);
             std::size_t add_right_child_to(std::size_t parent_index, const CodeTreeNode& child);
-            auto get_code_map() -> Code<Symbol<char>>;
+            auto get_code_map() -> Code<symbol_type>;
             inline CodeTreeNode& get_node_ref_from_index(std::size_t index) {
                 assert(index < m_tree.size());
 
@@ -318,6 +361,24 @@ namespace compadre {
             }
 
             auto get_index_of_leaves() -> std::vector<std::size_t>;
+
+            inline
+            auto root() -> CodeTreeNode {
+                return m_tree.at(0);
+            }
+
+            [[nodiscard]]
+            auto root() const -> CodeTreeNode {
+                return m_tree.at(0);
+            }
+
+            static
+            auto merge(const CodeTree& left, const CodeTree& right) -> CodeTree;
+
+            static
+            auto greater_than(const CodeTree& left, const CodeTree& right) -> bool;
+
+
 
             //inline auto symbol_from_codeword(CodeWord codeword) {
             //}
@@ -337,9 +398,9 @@ namespace compadre {
     };
 
     template<ValidTreeNode CodeTreeNode>
-    CodeTree<CodeTreeNode>::CodeTree(SymbolList& symb_list)
-        : m_symb_list(symb_list)
+    CodeTree<CodeTreeNode>::CodeTree(const CodeTreeNode& root)
     {
+        push_node(root);
     }
 
 
@@ -401,9 +462,9 @@ namespace compadre {
     }
 
     template <ValidTreeNode CodeTreeNode>
-    auto CodeTree<CodeTreeNode>::get_code_map() -> Code<Symbol<char>> {
+    auto CodeTree<CodeTreeNode>::get_code_map() -> Code<symbol_type> {
 
-        auto code = Code<Symbol<char>>();
+        auto code = Code<symbol_type>();
         auto leaf_nodes_indexes = get_index_of_leaves();
 
         for (auto node_index: leaf_nodes_indexes) {
@@ -442,23 +503,213 @@ namespace compadre {
         return code;
     }
 
+    template <typename Algo>
+    struct SymbolType {
+        using type = typename Algo::symbol_type;
+    };
 
     template <typename Algo>
+    struct SymbolListType {
+        using type = typename Algo::symbol_list_type;
+    };
+
+    template <typename Algo, typename SymbolList = SymbolListType<Algo>::type>
     concept CodingAlgorithm = requires(SymbolList& symb_list) {
         {
             Algo::encode_symbol_list(symb_list)
-        } -> std::same_as<Code<Symbol<char>>>;
-    };
+        } -> std::same_as<Code<typename SymbolType<Algo>::type>>;
+        typename Algo::symbol_type;
+        typename Algo::symbol_type::inner_type;
+        typename Algo::symbol_type::attribute_type;
+
+        typename Algo::symbol_list_type;
+    } && std::same_as<
+            Symbol<typename Algo::symbol_type::inner_type, typename Algo::symbol_type::attribute_type>,
+            typename Algo::symbol_type
+    > && std::same_as<SymbolList, typename Algo::symbol_list_type>;
+
+        
 
     class ShannonFano {
         public:
-            static auto encode_symbol_list(SymbolList& symb_list) -> Code<Symbol<char>>;
-            static auto generate_code_tree(SymbolList& symb_list) -> CodeTree<SFTreeNode>;
+            using symbol_type = SFSymbol;
+            using symbol_list_type = SymbolList<SFTreeNode::symbol_type>;
+            static auto encode_symbol_list(SymbolList<symbol_type>& symb_list) -> Code<symbol_type>;
+            static auto generate_code_tree(SymbolList<symbol_type>& symb_list) -> CodeTree<SFTreeNode>;
     };
+
+    using HuffmanSymbol = Symbol<char, uint32_t>;
+    class HuffmanNode : public CodeTreeNode<uint32_t, HuffmanSymbol> {
+        public:
+            using symbol_type = HuffmanSymbol;
+            HuffmanNode(uint32_t counter)
+                : CodeTreeNode(counter)
+            {
+            }
+
+            HuffmanNode(uint32_t counter, symbol_type symbol)
+                : CodeTreeNode(counter, symbol)
+            {
+            }
+    };
+
+    // TODO: Write test!!
+    template<>
+    inline
+    auto CodeTree<HuffmanNode>::merge(const CodeTree& left, const CodeTree& right) -> CodeTree
+    {
+        auto print_node = [](HuffmanNode node) {
+            auto node_symb = node.symbol().has_value()
+                ?
+                node.symbol().value().is_unknown()
+                    ?
+                    std::string("rho")
+                    :
+                    std::string(1, node.symbol().value().inner().value())
+                :
+                "Branch";
+            std::println("({}\t{}) pai={}, index={}, left={}, right={}",
+                    node_symb, node.get_content().value(),
+                    node.m_parent_index.has_value() ? std::to_string(node.m_parent_index.value()) : std::string("None"),
+                    node.m_index.has_value() ? std::to_string(node.m_index.value()) : std::string("None"),
+                    node.m_left_index.has_value() ? std::to_string(node.m_left_index.value()) : std::string("None"),
+                    node.m_right_index.has_value() ? std::to_string(node.m_right_index.value()) : std::string("None")
+            );
+        };
+
+        auto merged = CodeTree();
+        auto left_branch = left;
+        auto right_branch = right;
+
+        auto root_counter = left.root().get_content().value()
+                            + right.root().get_content().value();
+        auto new_root = HuffmanNode(root_counter);
+        auto root_index = merged.push_node(new_root);
+        auto merged_count = merged.nodes_count();
+
+        // Left branch
+        //std::println("Left branch");
+        for (auto node: left_branch) {
+            //std::print("Antes\t");
+            //print_node(node);
+
+            if (node.m_parent_index.has_value()) {
+                // Not the root
+                assert(node.m_index.value() != 0);
+                node.m_parent_index = merged_count + node.m_parent_index.value();
+            }
+
+            if (node.m_left_index.has_value()) {
+                node.m_left_index = merged_count + node.m_left_index.value();
+            }
+
+            if (node.m_right_index.has_value()) {
+                node.m_right_index = merged_count + node.m_right_index.value();
+            }
+
+            if (node.m_index.value() == 0) {
+                node.m_parent_index = root_index;
+            }
+
+            //std::print("Dps\t");
+            //print_node(node);
+
+            if (node.m_index.value() == 0) {
+                merged.add_left_child_to(root_index, node);
+            } else {
+                merged.push_node(node);
+            }
+        }
+
+        // Update the total number of nodes after the
+        // partial merge
+        merged_count = merged.nodes_count();
+
+        // Right branch
+        //std::println("Right branch");
+        for (auto node: right_branch) {
+            //std::print("Antes\t");
+            //print_node(node);
+
+            if (node.m_parent_index.has_value()) {
+                // Not the root
+                assert(node.m_index.value() != 0);
+                node.m_parent_index = merged_count + node.m_parent_index.value();
+            }
+
+            if (node.m_left_index.has_value()) {
+                node.m_left_index = merged_count + node.m_left_index.value();
+            }
+
+            if (node.m_right_index.has_value()) {
+                node.m_right_index = merged_count + node.m_right_index.value();
+            }
+
+            if (node.m_index.value() == 0) {
+                node.m_parent_index = root_index;
+            }
+
+            //std::print("Dps\t");
+            //print_node(node);
+
+            if (node.m_index.value() == 0) {
+                merged.add_right_child_to(root_index, node);
+            } else {
+                merged.push_node(node);
+            }
+        }
+
+        //std::println("Result!!");
+        /*
+        for (auto node: merged) {
+            print_node(node);
+        }
+        */
+
+        return merged;
+    }
+
+    template<>
+    inline
+    auto CodeTree<HuffmanNode>::greater_than(const CodeTree& a_tree, const CodeTree& b_tree) -> bool {
+        auto a = a_tree.root();
+        auto b = b_tree.root();
+        auto a_counter = a.get_content().value();
+        auto b_counter = b.get_content().value();
+
+        auto a_has_symbol = a.symbol().has_value();
+        auto b_has_symbol = b.symbol().has_value();
+        auto both_have_symbol = a_has_symbol && b_has_symbol;
+
+        if (a_counter != b_counter) {
+            return a_counter > b_counter;
+        }
+
+        if (both_have_symbol) {
+
+            auto a_unknown_symbol = a.symbol().value().is_unknown();
+            auto b_unknown_symbol = b.symbol().value().is_unknown();
+
+            if (a_unknown_symbol || b_unknown_symbol) {
+                return a_unknown_symbol > b_unknown_symbol;
+            }
+
+            auto a_symbol_raw = a.symbol().value().inner().value();
+            auto b_symbol_raw = b.symbol().value().inner().value();
+
+            // Ordem alfabetica (lexicografica)
+            return b_symbol_raw > a_symbol_raw;
+        }
+
+        return a_has_symbol > b_has_symbol;
+    }
 
     class Huffman {
         public:
-            static auto encode_symbol_list(SymbolList& symb_list) -> Code<Symbol<char>>;
+            using symbol_type = HuffmanNode::symbol_type;
+            using symbol_list_type = SymbolList<HuffmanNode::symbol_type>;
+            static auto encode_symbol_list(SymbolList<symbol_type>& symb_list) -> Code<symbol_type>;
+            static auto generate_code_tree(SymbolList<symbol_type>& symb_list) -> CodeTree<HuffmanNode>;
     };
 
     template <typename T>
@@ -466,16 +717,17 @@ namespace compadre {
 
 
     template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
+        //requires CodingAlgorithm<CodingAlgo, typename CodingAlgo::symbol_list_type>
     class Compressor
     {
         private:
             outbit::BitBuffer m_bitbuffer;
 
             template <StaticModel SModel>
-            auto static_compression(PreprocessedPortugueseText& msg, SymbolList& symb_list) -> std::vector<u8>;
+            auto static_compression(PreprocessedPortugueseText& msg, SymbolListType<CodingAlgo>::type& symb_list) -> std::vector<u8>;
 
             template <StaticModel SModel>
-            auto static_decompression(std::vector<u8>& data, SymbolList& symb_list) -> PreprocessedPortugueseText;
+            auto static_decompression(std::vector<u8>& data, SymbolListType<CodingAlgo>::type& symb_list) -> PreprocessedPortugueseText;
         public:
             auto compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) -> std::vector<u8>;
             auto decompress_preprocessed_portuguese_text(std::vector<u8>&) -> PreprocessedPortugueseText;
@@ -486,10 +738,10 @@ namespace compadre {
     // para a msg
     template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
     template <StaticModel SModel>
-    auto Compressor<Model, CodingAlgo>::static_compression(PreprocessedPortugueseText& msg, SymbolList& symb_list) -> std::vector<u8> {
+    auto Compressor<Model, CodingAlgo>::static_compression(PreprocessedPortugueseText& msg, SymbolListType<CodingAlgo>::type& symb_list) -> std::vector<u8> {
 
         for (auto& symb: symb_list) {
-            symb.set_probability(SModel::probability_of(symb.inner().value()));
+            symb.set_attribute(SModel::occurencies_of(symb.inner().value()));
         }
 
         auto code = CodingAlgo::encode_symbol_list(symb_list);
@@ -501,7 +753,7 @@ namespace compadre {
         // Write symb count in the first 4 bytes.
         outbuff.write(msg_lenght);
         for (char ch: msg.as_string()) {
-            auto symb = Symbol(ch);
+            auto symb = typename SymbolType<CodingAlgo>::type(ch);
 
             auto code_word = code.get(symb).value();
             total_bits += code_word.length();
@@ -524,11 +776,11 @@ namespace compadre {
         assert(text.as_string().size() < std::size_t(std::numeric_limits<uint32_t>::max)
                 && "Input is too big.");
 
-        auto symb_list = SymbolList();
+        auto symb_list = typename CodingAlgo::symbol_list_type();
 
         for (auto ch: PreprocessedPortugueseText::char_list) {
-            auto symb = Symbol(ch);
-            symb_list.push_char_symbol(symb);
+            auto symb = typename CodingAlgo::symbol_type(ch);
+            symb_list.push(symb);
         }
 
         return this->static_compression<Model>(text, symb_list);
@@ -536,9 +788,9 @@ namespace compadre {
 
     template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
     template <StaticModel SModel>
-    auto Compressor<Model, CodingAlgo>::static_decompression(std::vector<u8>& data, SymbolList& symb_list) -> PreprocessedPortugueseText {
+    auto Compressor<Model, CodingAlgo>::static_decompression(std::vector<u8>& data, SymbolListType<CodingAlgo>::type& symb_list) -> PreprocessedPortugueseText {
         for (auto& symbol: symb_list) {
-            symbol.set_probability(SModel::probability_of(symbol.inner().value()));
+            symbol.set_attribute(SModel::occurencies_of(symbol.inner().value()));
         }
 
         auto tree = CodingAlgo::generate_code_tree(symb_list);
@@ -553,7 +805,7 @@ namespace compadre {
         for (uint32_t symb_index = 0; symb_index < symb_count; symb_index++) {
             auto current_node = tree.get_node_ref_from_index(0);
             auto code_word = CodeWord();
-            auto symbol = std::optional<Symbol<char>>();
+            auto symbol = std::optional<typename CodingAlgo::symbol_type>();
 
             while (true) {
                 auto current_bit = inbuff.read_bits_as<bool>(1);
@@ -570,8 +822,8 @@ namespace compadre {
 
                 code_word.push_right_bit(current_bit);
 
-                if (current_node.template has_content_of_type<Symbol<char>>()) {
-                    symbol = current_node.template get_content<Symbol<char>>();
+                if (current_node.symbol().has_value()) {
+                    symbol = current_node.symbol().value();
                     break;
                 }
             }
@@ -586,11 +838,11 @@ namespace compadre {
     template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
     auto Compressor<Model, CodingAlgo>::decompress_preprocessed_portuguese_text(std::vector<u8>& data) -> PreprocessedPortugueseText {
 
-        auto symb_list = SymbolList();
+        auto symb_list = typename SymbolListType<CodingAlgo>::type();
 
         for (auto ch: PreprocessedPortugueseText::char_list) {
-            auto symb = Symbol(ch);
-            symb_list.push_char_symbol(symb);
+            auto symb = typename SymbolType<CodingAlgo>::type(ch);
+            symb_list.push(symb);
         }
 
         return this->static_decompression<Model>(data, symb_list);
@@ -606,8 +858,8 @@ struct std::formatter<compadre::CodeTree<compadre::SFTreeNode>> : std::formatter
                 "Tree (size={}): ", tree.nodes_count());
 
         for (auto& node: tree) {
-            if (node.has_content_of_type<compadre::Symbol<char>>()) {
-                auto node_symbol = node.get_content<compadre::Symbol<char>>().value().inner().value();
+            if (node.has_content_of_type<compadre::SFSymbol>()) {
+                auto node_symbol = node.get_content<compadre::SFSymbol>().value().inner().value();
                 std::format_to(std::back_inserter(temp),
                         " (node={}, symb='{}')", node.index().value(), node_symbol);
             }

@@ -86,40 +86,22 @@ namespace compadre {
         return final_result;
     }
 
-    void SymbolList::push_char_symbol(Symbol<char> symb) {
-        m_list.push_back(symb);
-    }
-
-    void SymbolList::sort() {
-        std::ranges::sort(m_list,
-            [](decltype(m_list)::value_type a, decltype(m_list)::value_type b) {
-                return a.probability().value() < b.probability().value();
-            });
-    }
-
-    bool SymbolList::is_sorted() {
-        return std::ranges::is_sorted(m_list,
-            [](decltype(m_list)::value_type a, decltype(m_list)::value_type b) {
-                return a.probability().value() < b.probability().value();
-            });
-    }
-
-    std::pair<SymbolList, SymbolList> SFTreeNode::slip_symbol_list(SymbolList& symb_list) {
-        float total_propability = 0.0f;
+    std::pair<SymbolList<SFSymbol>, SymbolList<SFSymbol>> SFTreeNode::slip_symbol_list(SymbolList<SFSymbol>& symb_list) {
+        uint32_t total_occurencies = 0;
 
         for (auto symb: symb_list) {
-            total_propability += symb.probability().value();
+            total_occurencies += symb.attribute().value();
         }
 
-        float half_propability = total_propability / 2.0f;
+        double half_occurencies = (double) total_occurencies / 2.0;
 
         std::size_t split_index = 0;
-        float min_diff = std::numeric_limits<float>::max();
+        double min_diff = std::numeric_limits<double>::max();
 
-        auto current_total = 0.0f;
+        uint32_t current_total = 0;
         for (auto [symb_index, symb]: std::views::enumerate(symb_list)) {
-            current_total += symb.probability().value();
-            float diff_to_half = std::abs(half_propability - current_total);
+            current_total += symb.attribute().value();
+            double diff_to_half = std::abs(half_occurencies - (double)current_total);
 
             if (diff_to_half < min_diff) {
                 min_diff = diff_to_half;
@@ -127,26 +109,26 @@ namespace compadre {
             }
         }
 
-        auto left = SymbolList();
-        auto right = SymbolList();
+        auto left = SymbolList<SFSymbol>();
+        auto right = SymbolList<SFSymbol>();
 
         for (auto [symb_index, symb]: std::views::enumerate(symb_list)) {
             assert(symb_index >= 0);
             if (std::size_t(symb_index) <= split_index) {
-                left.push_char_symbol(symb);
+                left.push(symb);
             } else {
-                right.push_char_symbol(symb);
+                right.push(symb);
             }
         }
         
         return std::make_pair(left, right);
     }
 
-    auto ShannonFano::generate_code_tree(SymbolList& symb_list) -> CodeTree<SFTreeNode> {
+    auto ShannonFano::generate_code_tree(SymbolList<SFSymbol>& symb_list) -> CodeTree<SFTreeNode> {
         auto sorted = symb_list;
-        sorted.sort();
+        sorted.sort_by_attribute();
 
-        auto tree = CodeTree<SFTreeNode>(sorted);
+        auto tree = CodeTree<SFTreeNode>();
         tree.push_node(SFTreeNode(sorted));
 
         assert(tree.nodes_count() == 1);
@@ -161,8 +143,8 @@ namespace compadre {
             stack.pop_back();
 
             // Assert that the node doesnt hold a Symbol<char>
-            assert(not node.has_content_of_type<Symbol<char>>());
-            auto symb_list_opt = node.get_content<SymbolList>();
+            assert(not node.has_content_of_type<SFSymbol>());
+            auto symb_list_opt = node.get_content<SymbolList<SFSymbol>>();
             auto symb_list = symb_list_opt.value(); // NOLINT(bugprone-unchecked-optional-access)
             // Assert that the SymbolList of the node is sorted;
             assert(symb_list.is_sorted());
@@ -190,11 +172,11 @@ namespace compadre {
             auto right_child = SFTreeNode(right_content);
 
             // Store the indexes of the nodes that have a Symbol as content
-            if (left_child.has_content_of_type<Symbol<char>>()) {
-                left_child.m_symbol = left_child.get_content<Symbol<char>>().value();
+            if (left_child.has_content_of_type<SFSymbol>()) {
+                left_child.m_symbol = left_child.get_content<SFSymbol>().value();
             }
-            if (right_child.has_content_of_type<Symbol<char>>()) {
-                right_child.m_symbol = right_child.get_content<Symbol<char>>().value();
+            if (right_child.has_content_of_type<SFSymbol>()) {
+                right_child.m_symbol = right_child.get_content<SFSymbol>().value();
             }
 
             // Add nodes to tree
@@ -210,18 +192,18 @@ namespace compadre {
 
             // Push the node into de stack if its content still is
             // a SymbolList
-            if (left_child.has_content_of_type<SymbolList>()) {
+            if (left_child.has_content_of_type<SymbolList<SFSymbol>>()) {
                 stack.push_back(left_child);
             }
-            if (right_child.has_content_of_type<SymbolList>()) {
+            if (right_child.has_content_of_type<SymbolList<SFSymbol>>()) {
                 stack.push_back(right_child);
             }
 
             // Store the indexes of the nodes that have a Symbol as content
-            if (left_child.has_content_of_type<Symbol<char>>()) {
+            if (left_child.has_content_of_type<SFSymbol>()) {
                 leaf_nodes_indexes.push_back(left_index);
             }
-            if (right_child.has_content_of_type<Symbol<char>>()) {
+            if (right_child.has_content_of_type<SFSymbol>()) {
                 leaf_nodes_indexes.push_back(right_index);
             }
 
@@ -288,8 +270,79 @@ namespace compadre {
         return tree;
     }
 
-    auto ShannonFano::encode_symbol_list(SymbolList& symb_list) -> Code<Symbol<char>> {
+    auto ShannonFano::encode_symbol_list(SymbolListType<ShannonFano>::type& symb_list) -> Code<SFSymbol> {
         auto code_tree = ShannonFano::generate_code_tree(symb_list);
+        return code_tree.get_code_map();
+    }
+
+    auto Huffman::generate_code_tree(SymbolListType<Huffman>::type& symb_list) -> CodeTree<HuffmanNode> {
+
+        auto print_root = [](HuffmanNode root) {
+            auto root_symb = root.symbol().has_value()
+                ?
+                root.symbol().value().is_unknown()
+                    ?
+                    std::string("rho")
+                    :
+                    std::string(1, root.symbol().value().inner().value())
+                :
+                "None";
+            std::println("{} {}", root_symb, root.get_content().value());
+        };
+
+        auto forest = std::vector<CodeTree<HuffmanNode>>();
+        for (auto& symb: symb_list) {
+            auto root = HuffmanNode(symb.attribute().value(), symb);
+            auto single_node_tree = CodeTree<HuffmanNode>(root); 
+            forest.push_back(single_node_tree);
+        }
+
+        // Tipos de nos da arvore
+        //  1. Com simbolo
+        //  2. Com simbolo desconhecido (rho)
+        //  3. Sem Simbolo
+        //
+
+        // Peso de ordenacao (criterio de desempate)
+        //  1. Contador 
+        //  2. ter Simbolo vazio
+        //  3. Ordem dos simbolos (se tem um simbolo)
+        //  4. Nao ter simbolo
+
+        while (forest.size() > 1) {
+            std::ranges::sort(
+                forest,
+                CodeTree<HuffmanNode>::greater_than
+            );
+
+
+            /*
+            std::println("Sorted roots:");
+            for (auto& tree: forest) {
+                print_root(tree.root());
+            }
+            */
+
+            auto ultimo = forest.back();
+            forest.pop_back();
+            auto penultimo = forest.back();
+            forest.pop_back();
+
+
+            auto merged = CodeTree<HuffmanNode>::merge(penultimo, ultimo);
+
+            forest.push_back(merged);
+
+            //std::print("\n\n");
+        }
+
+        assert(forest.size() == 1);
+
+        return forest.at(0);
+    }
+
+    auto Huffman::encode_symbol_list(SymbolListType<Huffman>::type& symb_list) -> Code<HuffmanSymbol> {
+        auto code_tree = Huffman::generate_code_tree(symb_list);
         return code_tree.get_code_map();
     }
 
