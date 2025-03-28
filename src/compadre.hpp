@@ -20,11 +20,6 @@ namespace compadre {
         { Model::occurencies_of(symb) } -> std::same_as<uint32_t>;
     };
 
-    template<typename Model>
-    concept AdaptativeModel = requires(char symb) {
-        { Model::new_probability_of(symb) } -> std::same_as<uint32_t>;
-    };
-
     class PreprocessedPortugueseText {
         private:
             std::string m_text;
@@ -529,6 +524,18 @@ namespace compadre {
             typename Algo::symbol_type
     > && std::same_as<SymbolList, typename Algo::symbol_list_type>;
 
+    template<typename Model>
+    concept AdaptativeModel =
+        requires(
+            Model model,
+            typename Model::symbol_type symb,
+            SymbolList<typename Model::symbol_type> symb_list
+        )
+    {
+        { model.occurencies_of(symb) } -> std::same_as<SymbolList<typename Model::symbol_type>>;
+        { Model(symb_list) } -> std::same_as<Model>;
+    };
+
     template<ValidSymbol Symbol>
     class Context {
         private:
@@ -551,13 +558,24 @@ namespace compadre {
     template<ValidSymbol Symbol, std::size_t MaxK>
     class PPM {
         std::array<std::vector<Context<Symbol>>, MaxK> contexts_lists;
+        SymbolList<Symbol> m_symbols;
+
 
         public:
+            using symbol_type = Symbol;
+
+            PPM(SymbolList<Symbol>& symb_list)
+                : m_symbols(symb_list)
+            {
+            }
+
             auto occurencies_of(Symbol& symbol) -> SymbolList<Symbol> {
+                // TODO: Comecar pelo K = -1
                 // 1) atualiza o contexto atual
                 // 2) procura pelo symbolo nos contextos em ordem decrescente de tamanho
                 // 3) atualiza a tabela
-                // 4) retorna a lista de simbolos com os contatores previos à atualização
+                // 4) retorna a lista de simbolos com os contadores previos à atualização
+                return {};
             }
 
             void assert_contexts() {
@@ -598,6 +616,7 @@ namespace compadre {
     inline
     auto CodeTree<HuffmanNode>::merge(const CodeTree& left, const CodeTree& right) -> CodeTree
     {
+        /*
         auto print_node = [](HuffmanNode node) {
             auto node_symb = node.symbol().has_value()
                 ?
@@ -616,6 +635,7 @@ namespace compadre {
                     node.m_right_index.has_value() ? std::to_string(node.m_right_index.value()) : std::string("None")
             );
         };
+        */
 
         auto merged = CodeTree();
         auto left_branch = left;
@@ -753,7 +773,7 @@ namespace compadre {
     };
 
     template <typename T>
-    concept ProbabilityModel = StaticModel<T> || AdaptativeModel<T>;
+    concept ProbabilityModel = AdaptativeModel<T> || StaticModel<T>;
 
 
     template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
@@ -768,11 +788,45 @@ namespace compadre {
 
             template <StaticModel SModel>
             auto static_decompression(std::vector<u8>& data, SymbolListType<CodingAlgo>::type& symb_list) -> PreprocessedPortugueseText;
+
+            template <AdaptativeModel AModel>
+            auto adaptative_compression(PreprocessedPortugueseText& msg, SymbolListType<CodingAlgo>::type& symb_list) -> std::vector<u8>;
         public:
             auto compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) -> std::vector<u8>;
             auto decompress_preprocessed_portuguese_text(std::vector<u8>&) -> PreprocessedPortugueseText;
 
     };
+
+    template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
+    template <AdaptativeModel AModel>
+    auto Compressor<Model, CodingAlgo>::adaptative_compression(PreprocessedPortugueseText& msg, SymbolListType<CodingAlgo>::type& symb_list) -> std::vector<u8> {
+        auto prob_model = AModel(symb_list);
+
+        // Buffer of compressed data
+        auto outbuff = outbit::BitBuffer();
+        // TODO: Isso precisa ser feitor posteriormente
+        // Write symb count in the first 4 bytes.
+        // outbuff.write(msg_lenght);
+        std::size_t total_bits{};
+
+        for (char ch: msg.as_string()) {
+            auto symb = typename SymbolType<CodingAlgo>::type(ch);
+
+            auto symb_list_to_encode = prob_model.occurencies_of(symb);
+            auto code = CodingAlgo::encode_symbol_list(symb_list_to_encode);
+
+            auto code_word = code.get(symb).value();
+            total_bits += code_word.length();
+            // NOTE: We do this to make the decompression more efficient.
+            code_word.reverse_valid_bits();
+            auto bits_as_ullong = code_word.m_bits.to_ullong();
+
+            outbuff.write_bits(bits_as_ullong, code_word.length());
+
+        }
+
+        return outbuff.buffer();
+    }
 
     // TODO: usar um tipo generico iterável no lugar de PreprocessedPortugueseText
     // para a msg
@@ -804,7 +858,7 @@ namespace compadre {
             outbuff.write_bits(bits_as_ullong, code_word.length());
         }
 
-        auto bits_per_symb = float(total_bits) / float(msg.as_string().size());
+        // auto bits_per_symb = float(total_bits) / float(msg.as_string().size());
         //std::println("bits per symb {}", bits_per_symb);
         //std::println("razao de comp {}", 5.0f / bits_per_symb);
 
@@ -823,7 +877,14 @@ namespace compadre {
             symb_list.push(symb);
         }
 
-        return this->static_compression<Model>(text, symb_list);
+        if constexpr (StaticModel<Model>) {
+            return this->static_compression<Model>(text, symb_list);
+        } if constexpr (AdaptativeModel<Model>) {
+            return this->adaptative_compression<Model>(text, symb_list);
+        }
+
+        static_assert(ProbabilityModel<Model>);
+
     }
 
     template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>

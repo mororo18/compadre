@@ -153,5 +153,25 @@ UTEST(Huffman, preproc_little_roundtrip) {
     }
 }
 
+UTEST(PPM_Huffman, preproc_little_roundtrip) {
+    using namespace compadre;
+
+    auto preproc_input = PreprocessedPortugueseText("eita");
+    auto compressor = Compressor<PPM<HuffmanSymbol, 0>, Huffman>();
+    auto compressed_data = compressor.compress_preprocessed_portuguese_text(preproc_input);
+
+    // TODO: check if its necessary reconstruct the compressor object.
+    /*
+    compressor = compadre::Compressor<compadre::PreprocessedPortugueseText::StaticModel, compadre::Huffman>();
+    auto decompressed_text = compressor.decompress_preprocessed_portuguese_text(compressed_data);
+
+    ASSERT_EQ(preproc_input.as_string().size(), decompressed_text.as_string().size());
+
+    for (std::size_t i = 0; i < preproc_input.as_string().size(); i++) {
+        ASSERT_EQ(preproc_input.as_string()[i], decompressed_text.as_string()[i]);
+    }
+    */
+}
+
 
 UTEST_MAIN()

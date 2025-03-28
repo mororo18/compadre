@@ -276,7 +276,8 @@ namespace compadre {
     }
 
     auto Huffman::generate_code_tree(SymbolListType<Huffman>::type& symb_list) -> CodeTree<HuffmanNode> {
-
+        assert(symb_list.size() > 0 && "SymbolList is empty!");
+        /*
         auto print_root = [](HuffmanNode root) {
             auto root_symb = root.symbol().has_value()
                 ?
@@ -289,6 +290,7 @@ namespace compadre {
                 "None";
             std::println("{} {}", root_symb, root.get_content().value());
         };
+        */
 
         auto forest = std::vector<CodeTree<HuffmanNode>>();
         for (auto& symb: symb_list) {
