@@ -111,6 +111,12 @@ namespace compadre {
         }
     };
 
+    template<typename SpecializedSymbol>
+    concept ValidSymbol =
+    std::same_as<SpecializedSymbol,
+        Symbol<typename SpecializedSymbol::inner_type, typename SpecializedSymbol::attribute_type>>;
+
+
     class CodeWord {
         public:
             std::bitset<32> m_bits;
@@ -144,11 +150,6 @@ namespace compadre {
 
             inline std::size_t length() { return m_bit_count; }
     };
-
-    template<typename SpecializedSymbol>
-    concept ValidSymbol =
-    std::same_as<SpecializedSymbol,
-        Symbol<typename SpecializedSymbol::inner_type, typename SpecializedSymbol::attribute_type>>;
 
     template<ValidSymbol SpecializedSymbol>
     class Code {
@@ -528,8 +529,47 @@ namespace compadre {
             typename Algo::symbol_type
     > && std::same_as<SymbolList, typename Algo::symbol_list_type>;
 
-        
+    template<ValidSymbol Symbol>
+    class Context {
+        private:
+            SymbolList<Symbol> m_inner;
+            SymbolList<Symbol> m_symbols;
+            std::size_t m_size;
+        public:
 
+            Context(SymbolList<Symbol>& ctx_symbols)
+                : m_inner(ctx_symbols)
+            {
+                m_size = ctx_symbols.size();
+            }
+
+            std::size_t size() {
+                return m_size;
+            }
+    };
+
+    template<ValidSymbol Symbol, std::size_t MaxK>
+    class PPM {
+        std::array<std::vector<Context<Symbol>>, MaxK> contexts_lists;
+
+        public:
+            auto occurencies_of(Symbol& symbol) -> SymbolList<Symbol> {
+                // 1) atualiza o contexto atual
+                // 2) procura pelo symbolo nos contextos em ordem decrescente de tamanho
+                // 3) atualiza a tabela
+                // 4) retorna a lista de simbolos com os contatores previos à atualização
+            }
+
+            void assert_contexts() {
+                for (std::size_t k = 0; k < MaxK; ++k) {
+                    for (const auto& context : contexts_lists[k]) {
+                        assert(context.size() == k);
+                    }
+                }
+            }
+    };
+
+        
     class ShannonFano {
         public:
             using symbol_type = SFSymbol;
