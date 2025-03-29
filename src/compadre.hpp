@@ -573,7 +573,14 @@ namespace compadre {
             SymbolList<typename Model::symbol_type> symb_list
         )
     {
-        { model.occurencies_of(symb) } -> std::same_as<SymbolList<typename Model::symbol_type>>;
+        { model.occurencies_of(symb) } -> std::same_as<
+            std::vector<
+                std::pair<
+                    typename Model::symbol_type,
+                    SymbolList<typename Model::symbol_type>
+                >
+            >
+        >;
         { Model(symb_list) } -> std::same_as<Model>;
     };
 
@@ -605,6 +612,8 @@ namespace compadre {
 
         public:
             using symbol_type = Symbol;
+            // Uma lista de pares = (simbolo, lista de simbolos/contadores)
+            using ContextualPath = std::vector<std::pair<Symbol, SymbolList<Symbol>>>;
 
             PPM(SymbolList<Symbol>& symb_list)
                 // : m_symbols(symb_list)
@@ -618,7 +627,7 @@ namespace compadre {
                 m_eq_prob_list = m_symbols;
             }
 
-            auto find_symbol_ctx(Symbol& symbol) -> std::optional<Context<Symbol>> {
+            auto find_symbol_context_path(Symbol& symbol) -> std::optional<ContextualPath> {
                 for (auto [ctx_size, ctx_list]: std::views::enumerate(m_contexts_lists) | std::views::reverse) {
                     std::println("ctx size {}", ctx_size);
 
@@ -629,15 +638,15 @@ namespace compadre {
                 return std::nullopt;
             }
 
-            auto occurencies_of(Symbol& symbol) -> SymbolList<Symbol> {
-                auto ret = SymbolList<Symbol>();
+            auto occurencies_of(Symbol& symbol) -> ContextualPath {
+                auto ret = std::vector<std::pair<Symbol, SymbolList<Symbol>>>();
                 // TODO: Comecar pelo K = -1
                 // x procura pelo symbolo nos contextos em ordem decrescente de tamanho
-                auto symb_ctx = find_symbol_ctx(symbol);
+                auto symb_ctx = find_symbol_context_path(symbol);
 
                 if (!symb_ctx.has_value()) {
                     assert(m_eq_prob_list.contains(symbol));
-                    ret = m_eq_prob_list;
+                    //ret = m_eq_prob_list;
                     //m_eq_prob_list.remove(symbol);
 
 
@@ -889,17 +898,19 @@ namespace compadre {
         for (char ch: msg.as_string()) {
             auto symb = typename SymbolType<CodingAlgo>::type(ch);
 
-            auto symb_list_to_encode = prob_model.occurencies_of(symb);
-            auto code = CodingAlgo::encode_symbol_list(symb_list_to_encode); // Code
+            auto ctx_path = prob_model.occurencies_of(symb);
 
-            auto code_word = code.get(symb).value(); // CodeWord
-            total_bits += code_word.length();
-            // NOTE: We do this to make the decompression easy.
-            code_word.reverse_valid_bits();
-            auto bits_as_ullong = code_word.m_bits.to_ullong();
+            for (auto [symb_to_encode, symb_list_to_encode]: ctx_path) {
+                auto code = CodingAlgo::encode_symbol_list(symb_list_to_encode); // Code
 
-            outbuff.write_bits(bits_as_ullong, code_word.length());
+                auto code_word = code.get(symb_to_encode).value(); // CodeWord
+                total_bits += code_word.length();
+                // NOTE: We do this to make the decompression easy.
+                code_word.reverse_valid_bits();
+                auto bits_as_ullong = code_word.m_bits.to_ullong();
 
+                outbuff.write_bits(bits_as_ullong, code_word.length());
+            }
         }
 
         return outbuff.buffer();
