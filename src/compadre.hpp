@@ -621,7 +621,8 @@ namespace compadre {
             auto find_symbol_ctx(Symbol& symbol) -> std::optional<Context<Symbol>> {
                 for (auto [ctx_size, ctx_list]: std::views::enumerate(m_contexts_lists) | std::views::reverse) {
                     std::println("ctx size {}", ctx_size);
-
+                        
+                    
                     for (auto& ctx: ctx_list) {
                     }
                 }
