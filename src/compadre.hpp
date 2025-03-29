@@ -181,6 +181,9 @@ namespace compadre {
             void sort_by_attribute();
             bool is_sorted();
             void push(SpecializedSymbol symb);
+            void remove(const SpecializedSymbol& symb);
+            void remove_at(std::size_t index);
+            bool contains(SpecializedSymbol symb);
             
             [[nodiscard]]
             inline auto cbegin() const noexcept { return m_list.cbegin(); }
@@ -197,8 +200,46 @@ namespace compadre {
     };
 
     template<ValidSymbol SpecializedSymbol>
+    bool SymbolList<SpecializedSymbol>::contains(SpecializedSymbol symb) {
+        for (auto [index, symbol]: std::views::enumerate(m_list)) {
+            if (symbol == symb) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    template<ValidSymbol SpecializedSymbol>
     void SymbolList<SpecializedSymbol>::push(SpecializedSymbol symb) {
         m_list.push_back(symb);
+    }
+
+    template<ValidSymbol SpecializedSymbol>
+    void SymbolList<SpecializedSymbol>::remove(const SpecializedSymbol& symb) {
+        std::optional<std::size_t> found_index = std::nullopt;
+        for (auto [index, symbol]: std::views::enumerate(m_list)) {
+            if (symbol == symb) {
+                found_index = index;
+                break;
+            }
+        }
+
+        if (found_index.has_value()) {
+            // it is not the last one
+            if (found_index.value() < m_list.size()-1) {
+                m_list.at(found_index.value()) = m_list.back();
+            }
+
+            m_list.pop_back();
+        }
+    }
+
+    template<ValidSymbol SpecializedSymbol>
+    void SymbolList<SpecializedSymbol>::remove_at(std::size_t index) {
+        // Bounds checking
+        void(m_list.at(index));
+        m_list.erase(m_list.begin() + index);
     }
 
     // TODO: write test
@@ -557,7 +598,8 @@ namespace compadre {
 
     template<ValidSymbol Symbol, std::size_t MaxK>
     class PPM {
-        std::array<std::vector<Context<Symbol>>, MaxK> contexts_lists;
+        std::array<std::vector<Context<Symbol>>, MaxK + 1> m_contexts_lists;
+        SymbolList<Symbol> m_eq_prob_list;
         SymbolList<Symbol> m_symbols;
 
 
@@ -565,22 +607,56 @@ namespace compadre {
             using symbol_type = Symbol;
 
             PPM(SymbolList<Symbol>& symb_list)
-                : m_symbols(symb_list)
+                // : m_symbols(symb_list)
             {
+                //m_symbols = SymbolList<Symbol>();
+                for (auto& symb: symb_list) {
+                    auto symbol = Symbol(symb.inner().value(), 1);
+                    m_symbols.push(symbol);
+                }
+
+                m_eq_prob_list = m_symbols;
+            }
+
+            auto find_symbol_ctx(Symbol& symbol) -> std::optional<Context<Symbol>> {
+                for (auto [ctx_size, ctx_list]: std::views::enumerate(m_contexts_lists) | std::views::reverse) {
+                    std::println("ctx size {}", ctx_size);
+
+                    for (auto& ctx: ctx_list) {
+                    }
+                }
+
+                return std::nullopt;
             }
 
             auto occurencies_of(Symbol& symbol) -> SymbolList<Symbol> {
+                auto ret = SymbolList<Symbol>();
                 // TODO: Comecar pelo K = -1
-                // 1) atualiza o contexto atual
-                // 2) procura pelo symbolo nos contextos em ordem decrescente de tamanho
-                // 3) atualiza a tabela
-                // 4) retorna a lista de simbolos com os contadores previos à atualização
-                return {};
+                // x procura pelo symbolo nos contextos em ordem decrescente de tamanho
+                auto symb_ctx = find_symbol_ctx(symbol);
+
+                if (!symb_ctx.has_value()) {
+                    assert(m_eq_prob_list.contains(symbol));
+                    ret = m_eq_prob_list;
+                    //m_eq_prob_list.remove(symbol);
+
+
+                    // Add symbol to Ctx K=0
+                }
+
+                // ctx = bb , symb  = c
+                // k = 2            k = 1
+                // bb -> c          b -> c
+
+                // x atualiza a tabela
+                // x atualiza o contexto atual
+                // x retorna a lista de simbolos com os contadores previos à atualização
+                return ret;
             }
 
             void assert_contexts() {
                 for (std::size_t k = 0; k < MaxK; ++k) {
-                    for (const auto& context : contexts_lists[k]) {
+                    for (const auto& context : m_contexts_lists[k]) {
                         assert(context.size() == k);
                     }
                 }
@@ -809,15 +885,16 @@ namespace compadre {
         // outbuff.write(msg_lenght);
         std::size_t total_bits{};
 
+        //std::println("adaptativoo");
         for (char ch: msg.as_string()) {
             auto symb = typename SymbolType<CodingAlgo>::type(ch);
 
             auto symb_list_to_encode = prob_model.occurencies_of(symb);
-            auto code = CodingAlgo::encode_symbol_list(symb_list_to_encode);
+            auto code = CodingAlgo::encode_symbol_list(symb_list_to_encode); // Code
 
-            auto code_word = code.get(symb).value();
+            auto code_word = code.get(symb).value(); // CodeWord
             total_bits += code_word.length();
-            // NOTE: We do this to make the decompression more efficient.
+            // NOTE: We do this to make the decompression easy.
             code_word.reverse_valid_bits();
             auto bits_as_ullong = code_word.m_bits.to_ullong();
 

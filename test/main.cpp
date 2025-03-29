@@ -157,7 +157,7 @@ UTEST(PPM_Huffman, preproc_little_roundtrip) {
     using namespace compadre;
 
     auto preproc_input = PreprocessedPortugueseText("eita");
-    auto compressor = Compressor<PPM<HuffmanSymbol, 0>, Huffman>();
+    auto compressor = Compressor< PPM<HuffmanSymbol, 1> , Huffman>();
     auto compressed_data = compressor.compress_preprocessed_portuguese_text(preproc_input);
 
     // TODO: check if its necessary reconstruct the compressor object.
