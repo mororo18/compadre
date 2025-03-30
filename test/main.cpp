@@ -171,6 +171,8 @@ UTEST(PPM_Huffman, preproc_little_roundtrip) {
         ASSERT_EQ(preproc_input.as_string()[i], decompressed_text.as_string()[i]);
     }
     */
+
+    ASSERT_TRUE(true);
 }
 
 

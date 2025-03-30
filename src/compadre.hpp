@@ -181,9 +181,21 @@ namespace compadre {
             void sort_by_attribute();
             bool is_sorted();
             void push(SpecializedSymbol symb);
+            auto at(std::size_t index) -> SpecializedSymbol;
+            auto position_of(const SpecializedSymbol& symb) -> std::optional<std::size_t>;
             void remove(const SpecializedSymbol& symb);
             void remove_at(std::size_t index);
             bool contains(SpecializedSymbol symb);
+            void print() {
+                std::print("SymbolList: ");
+                for (auto& symb: m_list) {
+                    std::print("Symb( inner={}, cont={} ) ",
+                        symb.is_unknown() ? "rho" : std::to_string(symb.inner().value()),
+                        symb.attribute().value()
+                    );
+                }
+                std::println("");
+            }
             
             [[nodiscard]]
             inline auto cbegin() const noexcept { return m_list.cbegin(); }
@@ -198,6 +210,11 @@ namespace compadre {
         private:
             std::vector<SpecializedSymbol> m_list;
     };
+
+    template<ValidSymbol SpecializedSymbol>
+    auto SymbolList<SpecializedSymbol>::at(std::size_t index) -> SpecializedSymbol {
+        return m_list.at(index);
+    }
 
     template<ValidSymbol SpecializedSymbol>
     bool SymbolList<SpecializedSymbol>::contains(SpecializedSymbol symb) {
@@ -215,6 +232,16 @@ namespace compadre {
         m_list.push_back(symb);
     }
 
+    template<ValidSymbol SpecializedSymbol>
+    auto SymbolList<SpecializedSymbol>::position_of(const SpecializedSymbol& symb) -> std::optional<std::size_t> {
+        for (auto [index, symbol]: std::views::enumerate(m_list)) {
+            if (symbol == symb) {
+                return index;
+            }
+        }
+
+        return std::nullopt;
+    }
     template<ValidSymbol SpecializedSymbol>
     void SymbolList<SpecializedSymbol>::remove(const SpecializedSymbol& symb) {
         std::optional<std::size_t> found_index = std::nullopt;
@@ -591,15 +618,38 @@ namespace compadre {
             SymbolList<Symbol> m_symbols;
             std::size_t m_size;
         public:
-
+            Context() = default;
             Context(SymbolList<Symbol>& ctx_symbols)
                 : m_inner(ctx_symbols)
             {
                 m_size = ctx_symbols.size();
             }
 
+            auto symbols() -> SymbolList<Symbol>& {
+                return m_symbols;
+            }
+
             std::size_t size() {
                 return m_size;
+            }
+
+            bool operator==(Context& other) {
+                if (m_inner.size() != other.m_inner.size()) {
+                    return false;
+                }
+
+                auto it1 = m_inner.begin();
+                auto it2 = other.m_inner.begin();
+
+                while (it1 != m_inner.end() && it2 != other.m_inner.end()) {
+                    if (*it1 != *it2) {
+                        return false;
+                    }
+                    ++it1;
+                    ++it2;
+                }
+
+                return true;
             }
     };
 
@@ -608,6 +658,7 @@ namespace compadre {
         std::array<std::vector<Context<Symbol>>, MaxK + 1> m_contexts_lists;
         SymbolList<Symbol> m_eq_prob_list;
         SymbolList<Symbol> m_symbols;
+        Context<Symbol> m_current_ctx;
 
 
         public:
@@ -627,35 +678,75 @@ namespace compadre {
                 m_eq_prob_list = m_symbols;
             }
 
-            auto find_symbol_context_path(Symbol& symbol) -> std::optional<ContextualPath> {
+            auto find_symbol_context_path(Symbol& symbol) -> ContextualPath {
+                std::println("FINDD");
+                auto ret = ContextualPath();
                 for (auto [ctx_size, ctx_list]: std::views::enumerate(m_contexts_lists) | std::views::reverse) {
-                    std::println("ctx size {}", ctx_size);
+
+                    if (not ctx_list.empty()) {
+                        std::println("Ctx atual = {}", ctx_size);
+                    }
 
                     for (auto& ctx: ctx_list) {
+                        if (m_current_ctx == ctx) {
+                            if (ctx.symbols().contains(symbol)) {
+                                // Add symbol to ContextualPath and return
+                                auto symb_index = ctx.symbols().position_of(symbol).value();
+                                ret.push_back(
+                                    std::make_pair(
+                                        ctx.symbols().at(symb_index),
+                                        ctx.symbols()
+                                    )
+                                );
+
+                                return ret;
+
+                            } else {
+                                // Add rho to ContextualPath
+                                const auto unknown_symb = Symbol();
+                                auto symb_index = ctx.symbols().position_of(unknown_symb).value();
+                                ret.push_back(
+                                    std::make_pair(
+                                        ctx.symbols().at(symb_index),
+                                        ctx.symbols()
+                                    )
+                                );
+                            }
+                        }
                     }
                 }
 
-                return std::nullopt;
+                return ret;
             }
 
             auto occurencies_of(Symbol& symbol) -> ContextualPath {
-                auto ret = std::vector<std::pair<Symbol, SymbolList<Symbol>>>();
+                auto ret = ContextualPath();
                 // TODO: Comecar pelo K = -1
                 // x procura pelo symbolo nos contextos em ordem decrescente de tamanho
-                auto symb_ctx = find_symbol_context_path(symbol);
+                auto symb_ctx_path = find_symbol_context_path(symbol);
 
-                if (!symb_ctx.has_value()) {
+                for (auto [symb, symb_list]: symb_ctx_path) {
+                    std::println("Symbol = {}", symb.is_unknown() ? "rho" : std::to_string(symb.inner().value()));
+                    symb_list.print();
+                }
+
+                if (symb_ctx_path.empty()) {
+                    std::println("Ctx path vazio!");
                     assert(m_eq_prob_list.contains(symbol));
+                    auto symb_index = m_eq_prob_list.position_of(symbol).value();
+                    ret.push_back(
+                        std::make_pair(
+                            m_eq_prob_list.at(symb_index),
+                            m_eq_prob_list
+                        )
+                    );
+
                     //ret = m_eq_prob_list;
                     //m_eq_prob_list.remove(symbol);
 
 
                     // Add symbol to Ctx K=0
                 }
-
-                // ctx = bb , symb  = c
-                // k = 2            k = 1
-                // bb -> c          b -> c
 
                 // x atualiza a tabela
                 // x atualiza o contexto atual
