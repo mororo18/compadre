@@ -18,6 +18,11 @@ namespace compadre {
         'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 
         'X', 'Y', 'Z'
     };
+    /*
+    const std::array<char, 2> PreprocessedPortugueseText::char_list = {
+        'A', 'I' 
+    };
+    */
 
     std::unordered_map<char, float> PreprocessedPortugueseText::StaticModel::char_frequencies = {
         {' ', 17.00}, {'E', 14.63}, {'A', 13.72}, {'O', 10.73}, {'S', 7.81},

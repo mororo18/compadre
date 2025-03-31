@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <utility>
 #include <format>
+#include <cmath>
 
 namespace compadre {
 
@@ -181,7 +182,8 @@ namespace compadre {
             void sort_by_attribute();
             bool is_sorted();
             void push(SpecializedSymbol symb);
-            auto at(std::size_t index) -> SpecializedSymbol;
+            void push_front(SpecializedSymbol symb);
+            auto at(std::size_t index) -> SpecializedSymbol&;
             auto position_of(const SpecializedSymbol& symb) -> std::optional<std::size_t>;
             void remove(const SpecializedSymbol& symb);
             void remove_at(std::size_t index);
@@ -189,8 +191,8 @@ namespace compadre {
             void print() {
                 std::print("SymbolList: ");
                 for (auto& symb: m_list) {
-                    std::print("Symb( inner={}, cont={} ) ",
-                        symb.is_unknown() ? "rho" : std::to_string(symb.inner().value()),
+                    std::print("Symb( {}, cont={} ) ",
+                        symb.is_unknown() ? "rho" : std::string(1, symb.inner().value()),
                         symb.attribute().value()
                     );
                 }
@@ -212,7 +214,7 @@ namespace compadre {
     };
 
     template<ValidSymbol SpecializedSymbol>
-    auto SymbolList<SpecializedSymbol>::at(std::size_t index) -> SpecializedSymbol {
+    auto SymbolList<SpecializedSymbol>::at(std::size_t index) -> SpecializedSymbol& {
         return m_list.at(index);
     }
 
@@ -225,6 +227,11 @@ namespace compadre {
         }
 
         return false;
+    }
+
+    template<ValidSymbol SpecializedSymbol>
+    void SymbolList<SpecializedSymbol>::push_front(SpecializedSymbol symb) {
+        m_list.insert(m_list.begin(), symb);
     }
 
     template<ValidSymbol SpecializedSymbol>
@@ -609,28 +616,116 @@ namespace compadre {
             >
         >;
         { Model(symb_list) } -> std::same_as<Model>;
+        { model.current_symbols_distribuiton() } -> std::same_as<SymbolList<typename Model::symbol_type>>;
+        { model.new_symbol_occurency(symb) } -> std::same_as<void>;
     };
 
-    template<ValidSymbol Symbol>
+    template<ValidSymbol Symbol, std::size_t MaxK>
     class Context {
         private:
             SymbolList<Symbol> m_inner;
             SymbolList<Symbol> m_symbols;
-            std::size_t m_size;
         public:
             Context() = default;
             Context(SymbolList<Symbol>& ctx_symbols)
                 : m_inner(ctx_symbols)
             {
-                m_size = ctx_symbols.size();
+                assert(MaxK >= ctx_symbols.size());
+            }
+
+            void clear_symbols() {
+                m_symbols = SymbolList<Symbol>();
+            }
+
+            void add_symbol(Symbol& symb) {
+                if (MaxK > 0) {
+                    if (m_inner.size() == MaxK) {
+                        m_inner.remove_at(m_inner.size() - 1);
+                    }
+
+                    m_inner.push_front(symb);
+                }
+            }
+
+            auto subcontext(std::size_t lenght) -> Context {
+                auto new_inner = SymbolList<Symbol>();
+                for (auto [inner_index, inner_symbol]: std::views::enumerate(m_inner)) {
+                    if (size_t(inner_index) == lenght) {
+                        break;
+                    }
+
+                    new_inner.push(inner_symbol);
+                }
+                return Context(new_inner);
             }
 
             auto symbols() -> SymbolList<Symbol>& {
                 return m_symbols;
             }
 
+            auto as_string() -> std::string {
+                std::string ctx_string{};
+
+
+                for (std::size_t i = 0; i < size(); i++) {
+                    auto symb = m_inner.at(i);
+                    ctx_string += " " + (symb.is_unknown() ? "rho" : std::string(1, symb.inner().value()));
+                }
+                 return ctx_string;
+            }
+
+            void print() {
+                std::print("Context={} , ", as_string());
+                m_symbols.print();
+            }
+
             std::size_t size() {
-                return m_size;
+                return m_inner.size();
+            }
+
+            void inc_symbol_occurencies(Symbol& symb) {
+                auto symb_index = m_symbols.position_of(symb).value();
+                auto curr_symb_occur = m_symbols.at(symb_index).attribute().value();
+                m_symbols.at(symb_index).set_attribute(curr_symb_occur+1);
+            }
+
+            void add_symbol_occurency(Symbol& symb) {
+                if (m_symbols.size() == 0) {
+                    auto unknown_symb = Symbol();
+                    unknown_symb.set_attribute(0);
+                    m_symbols.push(unknown_symb);
+                }
+
+                if (m_symbols.contains(symb)) {
+                    inc_symbol_occurencies(symb);
+                } else {
+                    // Add new symbol
+                    auto new_symb = symb;
+                    new_symb.set_attribute(1);
+                    m_symbols.push(new_symb);
+                }
+            }
+
+            void add_symbol_occurency_and_inc_rho(Symbol& symb) {
+                if (m_symbols.size() == 0) {
+                    auto unknown_symb = Symbol();
+                    unknown_symb.set_attribute(0);
+                    m_symbols.push(unknown_symb);
+                }
+
+                if (m_symbols.contains(symb)) {
+                    inc_symbol_occurencies(symb);
+                } else {
+                    // Inc Rho occurencies
+                    auto unknown_symb = Symbol();
+                    assert(m_symbols.contains(unknown_symb));
+                    inc_symbol_occurencies(unknown_symb);
+
+                    // Add new symbol
+                    auto new_symb = symb;
+                    new_symb.set_attribute(1);
+                    m_symbols.push(new_symb);
+                }
             }
 
             bool operator==(Context& other) {
@@ -655,19 +750,27 @@ namespace compadre {
 
     template<ValidSymbol Symbol, std::size_t MaxK>
     class PPM {
-        std::array<std::vector<Context<Symbol>>, MaxK + 1> m_contexts_lists;
+        std::array<std::vector<Context<Symbol, MaxK>>, MaxK + 1> m_contexts_lists;
         SymbolList<Symbol> m_eq_prob_list;
         SymbolList<Symbol> m_symbols;
-        Context<Symbol> m_current_ctx;
+        Context<Symbol, MaxK> m_current_ctx;
+        Context<Symbol, MaxK> m_ctx_used_to_decode;
+
+        // Descompressao
+        using ContextSize = std::size_t;
+        std::pair<Symbol, ContextSize> m_last_symbol_and_context;
+        std::pair<Symbol, ContextSize> m_last_msg_symbol_and_context;
 
 
         public:
             using symbol_type = Symbol;
             // Uma lista de pares = (simbolo, lista de simbolos/contadores)
-            using ContextualPath = std::vector<std::pair<Symbol, SymbolList<Symbol>>>;
+            using EncodingList = std::vector<std::pair<Symbol, SymbolList<Symbol>>>;
+
+            using ContextualPath = std::vector<std::pair<Symbol, Context<Symbol, MaxK>>>;
 
             PPM(SymbolList<Symbol>& symb_list)
-                // : m_symbols(symb_list)
+                : m_current_ctx(), m_last_symbol_and_context()
             {
                 //m_symbols = SymbolList<Symbol>();
                 for (auto& symb: symb_list) {
@@ -678,24 +781,133 @@ namespace compadre {
                 m_eq_prob_list = m_symbols;
             }
 
+            static
+            auto find_context(std::vector<Context<Symbol, MaxK>>& ctx_list, Context<Symbol, MaxK> target) -> std::optional<Context<Symbol, MaxK>*> {
+                for (auto& ctx: ctx_list) {
+                    if (ctx == target) {
+                        return &ctx;
+                    }
+                }
+
+                return std::nullopt;
+            }
+
+            auto current_symbols_distribuiton() -> SymbolList<Symbol> {
+                //std::println("\nCurrent symb dist, Ctx={}", m_current_ctx.as_string());
+                for (auto [ctx_size, ctx_list]: std::views::enumerate(m_contexts_lists) | std::views::reverse) {
+
+                    //std::println("K={}", ctx_size);
+                    if (std::size_t(ctx_size) > m_current_ctx.size()) {
+                        continue;
+                    }
+
+                    auto ctx_optional = PPM::find_context(ctx_list, m_current_ctx.subcontext(ctx_size)); 
+                    bool exist_ctx = ctx_optional.has_value();
+
+                    auto [last_symbol, last_ctx_size] = m_last_symbol_and_context;
+
+                    if (last_symbol.is_unknown() && last_ctx_size <= size_t(ctx_size)) {
+                        //std::println("pulou");
+                        continue;
+                    }
+
+                    if (exist_ctx) {
+                        //std::println("achouu");
+                        m_ctx_used_to_decode = m_current_ctx.subcontext(ctx_size);
+                        //ctx_optional.value()->print();
+                        return ctx_optional.value()->symbols();
+                    }
+                }
+
+                //std::println("Lista EQ");
+                return m_eq_prob_list;
+            }
+
+            void new_symbol_occurency(Symbol& symbol) {
+                // x atualiza o contexto atual
+                //std::println("\nNew Symb occurenciee,  Ctx={}", m_current_ctx.as_string());
+                //std::println("novo symbol={}", symbol.is_unknown() ? "rho" : std::string(1, symbol.inner().value()));
+
+                for (auto [ctx_size, ctx_list]: std::views::enumerate(m_contexts_lists) | std::views::reverse) {
+
+                    //std::println("K={}", ctx_size);
+                    if (std::size_t(ctx_size) > m_current_ctx.size()) {
+                        continue;
+                    }
+
+                    auto ctx_optional = PPM::find_context(ctx_list, m_current_ctx.subcontext(ctx_size)); 
+                    bool is_new_ctx = !ctx_optional.has_value() ;
+
+
+                    if (is_new_ctx && !symbol.is_unknown()) {
+                        //std::println("Ctx novo!");
+
+                        auto new_ctx = m_current_ctx.subcontext(ctx_size);
+                        new_ctx.clear_symbols();
+                        new_ctx.add_symbol_occurency_and_inc_rho(symbol);
+
+                        m_contexts_lists.at(ctx_size).push_back(new_ctx);
+                    } else if (!is_new_ctx) {
+
+                        if (symbol.is_unknown() && m_ctx_used_to_decode.size() < size_t(ctx_size)) {
+                            continue;
+                        }
+
+                        //std::println("Ctx encotrado!");
+                        auto ctx_ptr = ctx_optional.value();
+                        ctx_ptr->add_symbol_occurency(symbol);
+
+                        if (symbol.is_unknown()) {
+                            m_last_symbol_and_context = std::make_pair(symbol, ctx_size);
+                            return;
+                        }
+
+                    } else {
+                        continue;
+                    }
+
+                    for (auto pctx: m_contexts_lists.at(ctx_size)) {
+                        //pctx.print();
+                    }
+
+                    m_last_symbol_and_context = std::make_pair(symbol, ctx_size);
+
+
+                    if (m_eq_prob_list.contains(symbol)) {
+                        m_eq_prob_list.remove(symbol);
+                        //std::println("removidoo");
+                        //m_eq_prob_list.print();
+                    }
+                }
+
+                if (!symbol.is_unknown()) {
+                    m_current_ctx.add_symbol(symbol);
+                }
+            }
+
+
             auto find_symbol_context_path(Symbol& symbol) -> ContextualPath {
-                std::println("FINDD");
+                //std::println("FINDD");
                 auto ret = ContextualPath();
                 for (auto [ctx_size, ctx_list]: std::views::enumerate(m_contexts_lists) | std::views::reverse) {
 
+                    if (std::size_t(ctx_size) > m_current_ctx.size()) {
+                        continue;
+                    }
+
                     if (not ctx_list.empty()) {
-                        std::println("Ctx atual = {}", ctx_size);
+                        //std::println("Ctx atual = {}", ctx_size);
                     }
 
                     for (auto& ctx: ctx_list) {
-                        if (m_current_ctx == ctx) {
+                        if (m_current_ctx.subcontext(ctx_size) == ctx) {
                             if (ctx.symbols().contains(symbol)) {
                                 // Add symbol to ContextualPath and return
                                 auto symb_index = ctx.symbols().position_of(symbol).value();
                                 ret.push_back(
                                     std::make_pair(
                                         ctx.symbols().at(symb_index),
-                                        ctx.symbols()
+                                        ctx
                                     )
                                 );
 
@@ -708,7 +920,7 @@ namespace compadre {
                                 ret.push_back(
                                     std::make_pair(
                                         ctx.symbols().at(symb_index),
-                                        ctx.symbols()
+                                        ctx
                                     )
                                 );
                             }
@@ -719,39 +931,92 @@ namespace compadre {
                 return ret;
             }
 
-            auto occurencies_of(Symbol& symbol) -> ContextualPath {
-                auto ret = ContextualPath();
-                // TODO: Comecar pelo K = -1
-                // x procura pelo symbolo nos contextos em ordem decrescente de tamanho
-                auto symb_ctx_path = find_symbol_context_path(symbol);
+            void update_contexts(Symbol& symbol) {
+                //std::println("UPDATE CTX");
+                // x atualiza a tabela
 
-                for (auto [symb, symb_list]: symb_ctx_path) {
-                    std::println("Symbol = {}", symb.is_unknown() ? "rho" : std::to_string(symb.inner().value()));
-                    symb_list.print();
+                for (auto [ctx_size, ctx_list]: std::views::enumerate(m_contexts_lists) | std::views::reverse) {
+
+                    //std::println("K={}", ctx_size);
+                    if (std::size_t(ctx_size) > m_current_ctx.size()) {
+                        continue;
+                    }
+
+                    auto ctx_optional = PPM::find_context(ctx_list, m_current_ctx.subcontext(ctx_size)); 
+                    bool is_new_ctx = !ctx_optional.has_value();
+
+                    if (is_new_ctx) {
+                        //std::println("Ctx novo!");
+
+                        auto new_ctx = m_current_ctx.subcontext(ctx_size);
+                        new_ctx.clear_symbols();
+                        new_ctx.add_symbol_occurency_and_inc_rho(symbol);
+
+                        m_contexts_lists.at(ctx_size).push_back(new_ctx);
+                    } else {
+                        //std::println("Ctx encotrado!");
+                        auto ctx_ptr = ctx_optional.value();
+                        ctx_ptr->add_symbol_occurency_and_inc_rho(symbol);
+                    }
+
+                    for (auto pctx: m_contexts_lists.at(ctx_size)) {
+                        //pctx.print();
+                    }
+
                 }
 
-                if (symb_ctx_path.empty()) {
-                    std::println("Ctx path vazio!");
+
+                if (m_eq_prob_list.contains(symbol)) {
+                    m_eq_prob_list.remove(symbol);
+                }
+
+                // x atualiza o contexto atual
+                m_current_ctx.add_symbol(symbol);
+            }
+
+            auto occurencies_of(Symbol& symbol) -> EncodingList {
+                //std::println("\nPPM symb={} ctx={}", symbol.inner().value(), m_current_ctx.as_string());
+                auto symb_encoding_list = EncodingList();
+                // x procura pelo symbolo nos contextos em ordem decrescente de tamanho
+                auto ctx_path = find_symbol_context_path(symbol);
+
+                //std::println("Ctx path encontrado: ");
+                for (auto [symb, ctx]: ctx_path) {
+                    symb_encoding_list.push_back(
+                        std::make_pair(
+                            symb,
+                            ctx.symbols()
+                        )
+                    );
+                    //std::println("Symbol = {}", symb.is_unknown() ? "rho" : std::string(1, symb.inner().value()));
+                    //ctx.symbols().print();
+                }
+
+                //std::println("");
+
+                bool need_eq_encoding = false;
+                if (!ctx_path.empty()) {
+                    need_eq_encoding =
+                        ctx_path.back().first.is_unknown()
+                        && ctx_path.back().second.size() == 0;
+                }
+
+                if (symb_encoding_list.empty() || need_eq_encoding) {
+                    //std::println("Ctx path vazio!");
                     assert(m_eq_prob_list.contains(symbol));
                     auto symb_index = m_eq_prob_list.position_of(symbol).value();
-                    ret.push_back(
+                    symb_encoding_list.push_back(
                         std::make_pair(
                             m_eq_prob_list.at(symb_index),
                             m_eq_prob_list
                         )
                     );
-
-                    //ret = m_eq_prob_list;
-                    //m_eq_prob_list.remove(symbol);
-
-
-                    // Add symbol to Ctx K=0
                 }
 
-                // x atualiza a tabela
-                // x atualiza o contexto atual
+                update_contexts(symbol);
+
                 // x retorna a lista de simbolos com os contadores previos à atualização
-                return ret;
+                return symb_encoding_list;
             }
 
             void assert_contexts() {
@@ -948,9 +1213,14 @@ namespace compadre {
             static auto generate_code_tree(SymbolList<symbol_type>& symb_list) -> CodeTree<HuffmanNode>;
     };
 
+    struct CompressionInfo {
+        public:
+            double avg_lenght;
+            double entropy;
+    };
+
     template <typename T>
     concept ProbabilityModel = AdaptativeModel<T> || StaticModel<T>;
-
 
     template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
         //requires CodingAlgorithm<CodingAlgo, typename CodingAlgo::symbol_list_type>
@@ -958,6 +1228,7 @@ namespace compadre {
     {
         private:
             outbit::BitBuffer m_bitbuffer;
+            CompressionInfo m_compression_info;
 
             template <StaticModel SModel>
             auto static_compression(PreprocessedPortugueseText& msg, SymbolListType<CodingAlgo>::type& symb_list) -> std::vector<u8>;
@@ -967,9 +1238,15 @@ namespace compadre {
 
             template <AdaptativeModel AModel>
             auto adaptative_compression(PreprocessedPortugueseText& msg, SymbolListType<CodingAlgo>::type& symb_list) -> std::vector<u8>;
+            template <AdaptativeModel AModel>
+            auto adaptative_decompression(std::vector<u8>& data, SymbolListType<CodingAlgo>::type& symb_list) -> PreprocessedPortugueseText;
         public:
             auto compress_preprocessed_portuguese_text(PreprocessedPortugueseText&) -> std::vector<u8>;
             auto decompress_preprocessed_portuguese_text(std::vector<u8>&) -> PreprocessedPortugueseText;
+
+            auto compression_info() -> CompressionInfo {
+                return m_compression_info;
+            }
 
     };
 
@@ -982,29 +1259,130 @@ namespace compadre {
         auto outbuff = outbit::BitBuffer();
         // TODO: Isso precisa ser feitor posteriormente
         // Write symb count in the first 4 bytes.
-        // outbuff.write(msg_lenght);
+        uint32_t symb_count = 0;
+        outbuff.write(symb_count);
         std::size_t total_bits{};
+        double entropy = 0.0;
 
         //std::println("adaptativoo");
         for (char ch: msg.as_string()) {
             auto symb = typename SymbolType<CodingAlgo>::type(ch);
 
-            auto ctx_path = prob_model.occurencies_of(symb);
+            auto encoding_list = prob_model.occurencies_of(symb);
 
-            for (auto [symb_to_encode, symb_list_to_encode]: ctx_path) {
+            for (auto [symb_to_encode, symb_list_to_encode]: encoding_list) {
                 auto code = CodingAlgo::encode_symbol_list(symb_list_to_encode); // Code
 
                 auto code_word = code.get(symb_to_encode).value(); // CodeWord
-                total_bits += code_word.length();
+
+                /*
+                std::string symb_str = symb_to_encode.is_unknown() ? 
+                    "rho" : std::string(1, symb_to_encode.inner().value());
+                std::println("Symb={} Codeword={}",
+                            symb_str,
+                            code_word.m_bits.to_string()
+                        );
+                        */
+
+
                 // NOTE: We do this to make the decompression easy.
                 code_word.reverse_valid_bits();
                 auto bits_as_ullong = code_word.m_bits.to_ullong();
 
                 outbuff.write_bits(bits_as_ullong, code_word.length());
+
+                symb_count++;
+                total_bits += code_word.length();
+
+                size_t total_occur = 0;
+                for (auto symb: symb_list_to_encode) {
+                    total_occur += symb.attribute().value();
+                }
+
+                auto symb_probability = double(symb_to_encode.attribute().value()) / double(total_occur);
+                entropy += std::log2( 1.0 / symb_probability);
             }
         }
 
-        return outbuff.buffer();
+        auto ret = outbuff.buffer();
+        std::memcpy(ret.data(), &symb_count, sizeof(uint32_t));
+
+        //std::println("total bits = {}", total_bits);
+        //std::println("symb count = {}", symb_count);
+        m_compression_info = CompressionInfo {
+            .avg_lenght = double(total_bits) / double(symb_count),
+            .entropy = entropy / double(symb_count),
+        };
+
+        return ret;
+    }
+
+    template <ProbabilityModel Model, CodingAlgorithm CodingAlgo>
+    template <AdaptativeModel AModel>
+    auto Compressor<Model, CodingAlgo>::adaptative_decompression(std::vector<u8>& data, SymbolListType<CodingAlgo>::type& symb_list) -> PreprocessedPortugueseText {
+        // msg a b r a r
+        // msgcod = a rho b rho r a rho r
+        //
+        // loop: (K = 1)
+            // Recebe arvore do modelo
+            // decodifica simbolo do buffer utilizando a arvore
+            // informa symbolo ao modelo
+            //
+        //std::println("\n\n++++DESCOMPRESSAO+++++\n\n");
+        auto prob_model = AModel(symb_list);
+
+        // Buffer of compressed data
+        auto inbuff = outbit::BitBuffer();
+        inbuff.read_from_vector(data);
+        auto symb_count = inbuff.read_as<uint32_t>();
+        //std::println("symb count = {}", symb_count);
+
+        auto decompressed_text = std::string();
+
+        for (uint32_t symb_index = 0; symb_index < symb_count; symb_index++) {
+            auto curr_symb_list = prob_model.current_symbols_distribuiton();
+            auto tree = CodingAlgo::generate_code_tree(curr_symb_list);
+
+            // Get the root node
+            auto current_node = tree.get_node_ref_from_index(0);
+            auto code_word = CodeWord();
+            auto symbol = std::optional<typename CodingAlgo::symbol_type>();
+
+            if (tree.nodes_count() > 1) {
+                while (true) {
+                    auto current_bit = inbuff.read_bits_as<bool>(1);
+
+                    if (current_bit) {
+                        assert(decltype(tree)::right_branch_bit);
+                        auto right_index = current_node.m_right_index.value();
+                        current_node = tree.get_node_ref_from_index(right_index);
+                    } else {
+                        assert(!decltype(tree)::left_branch_bit);
+                        auto left_index = current_node.m_left_index.value();
+                        current_node = tree.get_node_ref_from_index(left_index);
+                    }
+
+                    code_word.push_right_bit(current_bit);
+
+                    if (current_node.symbol().has_value()) {
+                        symbol = current_node.symbol().value();
+                        break;
+                    }
+                }
+            } else {
+                assert (current_node.symbol().has_value());
+                symbol = current_node.symbol().value();
+            }
+
+            prob_model.new_symbol_occurency(symbol.value());
+
+            //assert(code.at(symbol.value()).m_bits == code_word.m_bits);
+            decompressed_text += symbol.value().is_unknown() ?
+                "" : std::string(1, symbol.value().inner().value());
+        }
+
+        return {decompressed_text};
+
     }
 
     // TODO: usar um tipo generico iterável no lugar de PreprocessedPortugueseText
@@ -1081,8 +1459,8 @@ namespace compadre {
 
         auto decompressed_text = std::string();
 
-        // Get the root node
         for (uint32_t symb_index = 0; symb_index < symb_count; symb_index++) {
+            // Get the root node
             auto current_node = tree.get_node_ref_from_index(0);
             auto code_word = CodeWord();
             auto symbol = std::optional<typename CodingAlgo::symbol_type>();
@@ -1125,7 +1503,13 @@ namespace compadre {
             symb_list.push(symb);
         }
 
-        return this->static_decompression<Model>(data, symb_list);
+        if constexpr (StaticModel<Model>) {
+            return this->static_decompression<Model>(data, symb_list);
+        } if constexpr (AdaptativeModel<Model>) {
+            return this->adaptative_decompression<Model>(data, symb_list);
+        }
+
+        static_assert(ProbabilityModel<Model>);
     }
 }
 

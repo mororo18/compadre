@@ -126,6 +126,9 @@ int main(int argc, const char * argv[]) {
     auto args = collect_args(argc, argv);
     auto user_input = treat_args(args);
 
+    using ProbabilityModel = compadre::PPM<compadre::HuffmanSymbol, 2>;
+    using CodingAlgorithm = compadre::Huffman;
+
 
     if (user_input.compression_mode) {
         auto t = std::ifstream(user_input.input_filename.value());
@@ -135,7 +138,7 @@ int main(int argc, const char * argv[]) {
                 );
         auto preproc = compadre::PreprocessedPortugueseText(input_text);
         auto compressor =
-            compadre::Compressor<compadre::PreprocessedPortugueseText::StaticModel, compadre::ShannonFano>();
+            compadre::Compressor<ProbabilityModel, CodingAlgorithm>();
         auto compressed_data = compressor.compress_preprocessed_portuguese_text(preproc);
 
         // Write output
@@ -148,7 +151,7 @@ int main(int argc, const char * argv[]) {
         auto data = inbuff.buffer();
 
         auto compressor =
-            compadre::Compressor<compadre::PreprocessedPortugueseText::StaticModel, compadre::ShannonFano>();
+            compadre::Compressor<ProbabilityModel, CodingAlgorithm>();
         auto decompressed_text = compressor.decompress_preprocessed_portuguese_text(data);
 
         auto decompressed_data = std::vector<outbit::u8>();
